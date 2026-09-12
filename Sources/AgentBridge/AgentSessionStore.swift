@@ -61,7 +61,11 @@ public struct AgentSessionStore: Sendable {
             let file = sessionsDirectory.appendingPathComponent(id + ".json")
             guard var session = try readIfPresent(file) else { return nil }
             if let expectedUpdatedAt, session.updatedAt != expectedUpdatedAt { return session }
-            if session.pendingRequestIDs.isEmpty && [.ready, .error].contains(session.status) {
+            let reviewable = session.status == .error || (session.status == .ready && session.pendingRequestIDs.isEmpty)
+            // Re-evaluate the current record while locked. An expired/exited
+            // request must not make its error impossible to review, but a live
+            // question or permission must never be acknowledged as answered.
+            if reviewable && session.attentionKind(at: now) != .inputRequired {
                 session.acknowledgedAt = now
                 try write(session, to: file)
             }

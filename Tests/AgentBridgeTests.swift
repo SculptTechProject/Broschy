@@ -58,6 +58,14 @@ enum AgentBridgeTests {
             object.merge(extra) { _, value in value }
             return try JSONSerialization.data(withJSONObject: object)
         }
+        func saveFixture(_ session: AgentSession, in store: AgentSessionStore) throws {
+            // Deliberately model a legacy error with an unresolved request in
+            // an isolated test directory. Never use a real app snapshot.
+            try FileManager.default.createDirectory(at: store.sessionsDirectory, withIntermediateDirectories: true)
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .secondsSince1970
+            try encoder.encode(session).write(to: store.sessionsDirectory.appendingPathComponent(session.id + ".json"), options: .atomic)
+        }
         let store = AgentSessionStore(rootDirectory: root.appendingPathComponent("normal"))
         try check(try store.readSessions().isEmpty, "Read-only discovery must tolerate an unconfigured bridge.")
         precondition(!FileManager.default.fileExists(atPath: store.rootDirectory.path))
@@ -91,22 +99,95 @@ enum AgentBridgeTests {
         session = try waits.ingest(provider: .opencode, data: payload("question.replied", extra: ["request_id": "q1"]), now: now)!
         precondition(session.status == .working && session.pendingRequestIDs.isEmpty)
         session = try waits.ingest(provider: .opencode, data: payload("session.idle"), now: now)!
-        precondition(session.status == .ready && session.needsAttention(at: now))
+        precondition(session.status == .ready && session.attentionKind(at: now) == .responseReady && !session.needsAttention(at: now),
+                     "A completed response is ready to read, not a request for input.")
         _ = try waits.acknowledge(provider: .opencode, sessionID: "session-1", now: now)
         session = try waits.ingest(provider: .opencode, data: payload("session.status", extra: ["status": "idle"]), now: now)!
-        precondition(session.acknowledgedAt == now && !session.needsAttention(at: now), "Duplicate idle must preserve review acknowledgment.")
+        precondition(session.acknowledgedAt == now && session.attentionKind(at: now) == .none && !session.needsAttention(at: now), "Duplicate idle must preserve review acknowledgment.")
         session = try waits.ingest(provider: .opencode, data: payload("question.replied", extra: ["request_id": "q1"]), now: now)!
         precondition(session.status == .ready && session.acknowledgedAt == now, "Duplicate reply must not restart a completed turn.")
         print("PASS: independent permission/question waits, idempotent replies, no false completion, review acknowledgment")
 
+        let fixtureOwner = AgentProcessIdentity(pid: 42, startedAtSeconds: 1_000_000, startedAtMicroseconds: 123,
+                                               executableName: "codex")
+        var completedResponse = AgentSession(provider: .codex, sessionID: "attention-kinds", cwd: "/tmp/my-project",
+                                             status: .ready, updatedAt: now, ownerProcess: fixtureOwner)
+        precondition(completedResponse.attentionKind(at: now, ownerLiveness: .alive) == .responseReady
+                     && !completedResponse.needsAttention(at: now, ownerLiveness: .alive))
+        precondition(completedResponse.attentionKind(at: now, ownerLiveness: .exited) == .responseReady,
+                     "Completed responses remain available to review when the process exits.")
+        completedResponse.acknowledgedAt = now
+        precondition(completedResponse.attentionKind(at: now, ownerLiveness: .alive) == .none)
+        var reportedError = AgentSession(provider: .codex, sessionID: "error-kinds", cwd: "/tmp/my-project",
+                                        status: .error, updatedAt: now, ownerProcess: fixtureOwner)
+        precondition(reportedError.attentionKind(at: now, ownerLiveness: .alive) == .error
+                     && !reportedError.needsAttention(at: now, ownerLiveness: .alive),
+                     "An error without a request needs review, not input.")
+        reportedError.pendingRequestIDs = ["permission-1"]
+        let unchangedPendingError = reportedError
+        precondition(reportedError.attentionKind(at: now, ownerLiveness: .alive) == .inputRequired
+                     && reportedError.needsAttention(at: now, ownerLiveness: .alive))
+        precondition(reportedError.attentionKind(at: now.addingTimeInterval(1_801), ownerLiveness: .alive) == .error,
+                     "A stale pending request must stop being classified as current input; the error stays reviewable.")
+        precondition(reportedError.attentionKind(at: now.addingTimeInterval(76), ownerLiveness: .unknown) == .error)
+        precondition(reportedError.attentionKind(at: now, ownerLiveness: .exited) == .error,
+                     "An exited owner cannot still request input.")
+        precondition(reportedError == unchangedPendingError, "Attention classification must not mutate state or acknowledge anything.")
+        reportedError.acknowledgedAt = now
+        precondition(reportedError.attentionKind(at: now, ownerLiveness: .alive) == .inputRequired,
+                     "Acknowledging an error cannot hide its still-active permission request.")
+        precondition(reportedError.attentionKind(at: now, ownerLiveness: .exited) == .none)
+        reportedError.pendingRequestIDs = []
+        precondition(reportedError.attentionKind(at: now, ownerLiveness: .alive) == .none)
+        var inputRequest = AgentSession(provider: .codex, sessionID: "input-kinds", cwd: "/tmp/my-project",
+                                       status: .needsAttention, updatedAt: now, pendingRequestIDs: ["question-1"],
+                                       ownerProcess: fixtureOwner)
+        precondition(inputRequest.attentionKind(at: now, ownerLiveness: .alive) == .inputRequired)
+        precondition(inputRequest.attentionKind(at: now.addingTimeInterval(1_801), ownerLiveness: .alive) == .none)
+        precondition(inputRequest.attentionKind(at: now, ownerLiveness: .exited) == .none)
+        inputRequest.ownerProcess = nil
+        precondition(inputRequest.attentionKind(at: now.addingTimeInterval(76)) == .none)
+        for idleStatus in [AgentStatus.idle, .working, .closed, .unknown] {
+            let inactive = AgentSession(provider: .codex, sessionID: "non-attention", cwd: "/tmp/my-project", status: idleStatus, updatedAt: now)
+            precondition(inactive.attentionKind(at: now) == .none)
+        }
+        print("PASS: separate input/response/error semantics, pending error freshness and liveness, acknowledgment, and read-only classification")
+
         let oldResponse = session
-        _ = try waits.ingest(provider: .opencode, data: payload("message.updated", extra: ["role": "user"]), now: now.addingTimeInterval(0.125))
+        let newTurn = try waits.ingest(provider: .opencode, data: payload("message.updated", extra: ["role": "user"]), now: now.addingTimeInterval(0.125))!
+        precondition(newTurn.status == .working && newTurn.acknowledgedAt == nil && newTurn.attentionKind(at: now.addingTimeInterval(0.125)) == .none,
+                     "Starting the next user turn clears response readiness without inventing a request.")
         _ = try waits.ingest(provider: .opencode, data: payload("session.idle"), now: now.addingTimeInterval(0.250))
         session = try waits.acknowledge(provider: .opencode, sessionID: "session-1", expectedUpdatedAt: oldResponse.updatedAt, now: now.addingTimeInterval(0.375))!
         precondition(session.status == .ready && session.acknowledgedAt == nil, "A stale row must not acknowledge a newer unseen response.")
         _ = try waits.acknowledge(provider: .opencode, sessionID: "session-1", expectedUpdatedAt: session.updatedAt, now: now.addingTimeInterval(0.375))
         try check(try waits.readSessions().first?.acknowledgedAt != nil)
         print("PASS: stale-row acknowledgment does not dismiss newer unseen responses")
+
+        let errorReviews = AgentSessionStore(rootDirectory: root.appendingPathComponent("error-reviews"))
+        let pendingError = AgentSession(provider: .codex, sessionID: "pending-error", cwd: "/tmp/my-project",
+                                        status: .error, detail: "Agent reported an error", updatedAt: now,
+                                        pendingRequestIDs: ["permission-to-preserve"])
+        try saveFixture(pendingError, in: errorReviews)
+        let blockedErrorReview = try errorReviews.acknowledge(provider: .codex, sessionID: pendingError.sessionID,
+            expectedUpdatedAt: pendingError.updatedAt, now: now.addingTimeInterval(30))!
+        precondition(blockedErrorReview.acknowledgedAt == nil && blockedErrorReview.pendingRequestIDs == pendingError.pendingRequestIDs,
+                     "Review must reject a still-fresh permission accompanying an error.")
+        let reviewedStaleError = try errorReviews.acknowledge(provider: .codex, sessionID: pendingError.sessionID,
+            expectedUpdatedAt: pendingError.updatedAt, now: now.addingTimeInterval(76))!
+        precondition(reviewedStaleError.acknowledgedAt == now.addingTimeInterval(76)
+                     && reviewedStaleError.status == .error && reviewedStaleError.pendingRequestIDs == pendingError.pendingRequestIDs
+                     && reviewedStaleError.resolvedRequestIDs == pendingError.resolvedRequestIDs,
+                     "A stale request cannot block error review; review must neither answer nor remove that request.")
+        precondition(reviewedStaleError.attentionKind(at: now.addingTimeInterval(76)) == .none)
+        var newerError = pendingError
+        newerError.updatedAt = now.addingTimeInterval(0.25)
+        try saveFixture(newerError, in: errorReviews)
+        let staleErrorClick = try errorReviews.acknowledge(provider: .codex, sessionID: pendingError.sessionID,
+            expectedUpdatedAt: pendingError.updatedAt, now: now.addingTimeInterval(76))!
+        precondition(staleErrorClick.acknowledgedAt == nil && staleErrorClick.updatedAt == newerError.updatedAt,
+                     "Even a reviewable stale error cannot be acknowledged from a superseded displayed record.")
+        print("PASS: stale error review preserves unresolved requests, rejects fresh permissions, and retains exact-record acknowledgment guard")
 
         // Use a fresh session so reducer clock-order protection also stays active.
         let lifecycle = AgentSessionStore(rootDirectory: root.appendingPathComponent("lifecycle"))
@@ -245,12 +326,27 @@ enum AgentBridgeTests {
                      "A question may legitimately await a response while its exact owner stays alive.")
         precondition(waitingOwner.effectiveStatus(at: owned.updatedAt.addingTimeInterval(1_801)) == .unknown,
                      "A missed reply must not pin the notch indefinitely even if the process remains alive.")
+        let liveErrorReviews = AgentSessionStore(rootDirectory: root.appendingPathComponent("live-error-reviews"))
+        let liveOwnerError = AgentSession(provider: .codex, sessionID: "live-owner-error", cwd: "/tmp/my-project",
+                                         status: .error, detail: "Agent reported an error", updatedAt: Date().addingTimeInterval(-300),
+                                         pendingRequestIDs: ["live-owner-question"], ownerProcess: identity)
+        try saveFixture(liveOwnerError, in: liveErrorReviews)
+        let displayedLiveError = try liveErrorReviews.readSessions().first!
+        let liveReview = try liveErrorReviews.acknowledge(provider: .codex, sessionID: liveOwnerError.sessionID,
+            expectedUpdatedAt: displayedLiveError.updatedAt)!
+        precondition(liveReview.acknowledgedAt == nil && liveReview.pendingRequestIDs == liveOwnerError.pendingRequestIDs,
+                     "The store must check actual process liveness under its lock before reviewing a pending error.")
         let (unrelatedOwner, _) = try launchOwner("owner-2")
         defer { if unrelatedOwner.isRunning { unrelatedOwner.terminate(); unrelatedOwner.waitUntilExit() } }
         owner.terminate(); owner.waitUntilExit()
         precondition(unrelatedOwner.isRunning && identity.liveness() == .exited)
         precondition(owned.effectiveStatus() == .closed && waitingOwner.effectiveStatus() == .closed,
                      "Owner exit without SessionEnd must immediately clear active work/waits, even with another Codex process open.")
+        let exitedReview = try liveErrorReviews.acknowledge(provider: .codex, sessionID: liveOwnerError.sessionID,
+            expectedUpdatedAt: displayedLiveError.updatedAt)!
+        precondition(exitedReview.acknowledgedAt != nil && exitedReview.pendingRequestIDs == liveOwnerError.pendingRequestIDs
+                     && exitedReview.status == .error && exitedReview.resolvedRequestIDs.isEmpty,
+                     "Review after the exact owner exits preserves its request IDs without marking them resolved.")
         var reviewAfterExit = owned
         reviewAfterExit.status = .ready
         precondition(reviewAfterExit.effectiveStatus() == .ready)

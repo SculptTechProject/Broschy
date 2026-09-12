@@ -19,17 +19,19 @@ Broschy installs a reference to the CLI inside your current app bundle. If you m
 | Status | Meaning |
 | :--- | :--- |
 | Working | A recent prompt, tool call, or busy event was observed. Activity expires without new evidence, even when the process is still open. |
-| Needs attention | The agent reported a permission request or a question. Respond in the original tool. |
+| Needs attention | A fresh, actionable permission request or question is waiting. Respond in the original tool. |
 | Ready to review | The agent stopped responding or became idle. Review the result; this does not certify that the task succeeded. |
 | Error | A supported failure event was observed. Broschy shows a generic error, without recording the error contents. |
 | Idle | The session started or was interrupted. |
 | Status unknown | Working activity has not been refreshed for 120 seconds with a verified live process, or 75 seconds without one. Check the original tool. An unanswered request becomes unknown after 30 minutes even if its process remains alive. |
 
-**Needs you** gathers questions, permission requests, unreviewed responses, and errors. Use the status icon at the right of a session for **Copy resume command**, **Open project folder**, or **Mark reviewed**. Paste a copied resume command in your terminal to resume the corresponding provider's session. This does not select a running terminal tab or jump to a particular desktop conversation.
+**Needs you** contains only fresh, actionable questions and permission requests. **Ready to review** holds stopped responses, and **Errors** holds unreviewed failures. Use the status icon at the right of a session for **Copy resume command**, **Open project folder**, or **Mark reviewed**. Paste a copied resume command in your terminal to resume the corresponding provider's session. This does not select a running terminal tab or jump to a particular desktop conversation.
 
-Marking a response or error reviewed only clears its attention badge in Broschy. It does not change agent state. An active permission request cannot be marked reviewed. When its originating process exits, an active session is hidden even if no exit hook arrived. Completed responses and errors remain available for review. Ended sessions are hidden; the panel shows sessions updated in the last 24 hours, from the 512 most recently modified snapshots.
+Marking a response or error reviewed only clears its review marker in Broschy. It does not change agent state. Active requests cannot be marked reviewed. When its originating process exits, an active session is hidden even if no exit hook arrived. Stopped responses and errors remain available for review. Ended sessions are hidden; the panel shows sessions updated in the last 24 hours, from the 512 most recently modified snapshots.
 
-In the compact notch, attention takes priority over focus, command results, and music. Working agents appear when no focus session or recent command result needs that space. The animation indicates activity, not token throughput or percent complete. It respects Reduce Motion.
+Fresh questions and permission requests take priority in the compact notch. Ready responses never take over that space. Unreviewed errors have a separate red compact indicator when Quiet Focus is not running. Working agents appear when no higher-priority activity needs that space. The animation indicates activity, not token throughput or percent complete, and respects Reduce Motion.
+
+With Quiet Focus enabled and the countdown running, errors, working-agent activity, and command or workflow results stay out of the compact notch. Fresh questions and permission requests can still interrupt. All review items remain available in their panel sections. Pausing or finishing the timer restores normal compact priority.
 
 ## What is stored
 

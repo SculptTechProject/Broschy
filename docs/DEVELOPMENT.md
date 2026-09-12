@@ -4,6 +4,8 @@
 
 Broschy uses Swift Package Manager, SwiftUI for views, and AppKit for a borderless panel aligned with the screen's safe area. The main executable is `Broschy`; `broschy-cli` writes local command-result records. The package targets macOS 14, while compiling native Liquid Glass support requires the macOS 26 SDK from Xcode 26 or later.
 
+`StatusBarIcon.makeImage()` draws the 18-point menu bar mark as a native vector template. `isTemplate` lets macOS handle light, dark, and selected appearances; the icon has a Broschy accessibility description and tooltip.
+
 ```text
 Sources/Broschy/        App, panel, preferences, storage, Spotify, Build Watch
 Sources/BroschyCLI/     Command wrapper, result notifications, agent hook entry point
@@ -49,7 +51,9 @@ Codex CLI 0.144.5 does not dispatch SessionEnd/Interrupt hooks. Keep process che
 
 All modules are visible and Quiet Focus is off by default. The compact selector filters hidden modules before choosing an activity or its click destination. Hiding a module changes presentation without stopping background work. Settings are available through the header gear, the menu bar's **Settings…** item, and Command-comma.
 
-Quiet Focus uses `timer.isRunning`; a paused countdown releases its suppression. `AgentAttentionPolicy` keeps active questions and permissions eligible to interrupt while holding response/error review items in the full Agents queue. An error with a pending request must also pass the request's process-liveness and freshness checks. Local command and Build Watch results defer to the running focus timer. Ending or pausing Focus restores normal priority, subject to each result's existing expiry. This policy does not alter macOS Focus or other apps' notifications.
+`AgentAttentionPolicy` reserves **Needs you** for fresh, actionable questions and permissions. Stopped responses stay in **Ready to review** and never contribute compact attention; readiness is not proof of task success. Unreviewed failures stay in **Errors** and use a separate red compact indication. A pending request attached to an error must pass the request's process-liveness and freshness checks before it can interrupt as a request.
+
+Quiet Focus uses `timer.isRunning`; a paused countdown releases its suppression. Fresh questions and permissions remain eligible to interrupt, while error, working-agent, local command result, and Build Watch result indicators defer to the running focus timer. Ready responses remain panel-only regardless of Quiet Focus. Ending or pausing Focus restores normal priority, subject to each result's existing expiry. This policy does not alter macOS Focus or other apps' notifications.
 
 ## Build Watch
 

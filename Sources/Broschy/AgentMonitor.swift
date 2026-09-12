@@ -31,7 +31,9 @@ final class AgentMonitor: ObservableObject {
         return sessions.filter { $0.updatedAt > cutoff && $0.effectiveStatus() != .closed }
     }
     var attention: [AgentSession] { visibleSessions.filter { $0.needsAttention() } }
-    var others: [AgentSession] { visibleSessions.filter { !$0.needsAttention() } }
+    var readyResponses: [AgentSession] { visibleSessions.filter { $0.attentionKind() == .responseReady } }
+    var errors: [AgentSession] { visibleSessions.filter { $0.attentionKind() == .error } }
+    var others: [AgentSession] { visibleSessions.filter { $0.attentionKind() == .none } }
     var workingCount: Int { visibleSessions.filter { $0.effectiveStatus() == .working }.count }
     var needsYouCount: Int { attention.count }
     var hasCompactActivity: Bool { needsYouCount > 0 || workingCount > 0 }

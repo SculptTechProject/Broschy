@@ -98,9 +98,19 @@ struct AgentsView: View {
                             sectionLabel("Needs you", count: monitor.needsYouCount, tint: Ink.primary)
                             ForEach(monitor.attention) { row($0) }
                         }
-                        if !monitor.others.isEmpty {
-                            sectionLabel(monitor.attention.isEmpty ? "Sessions" : "Other sessions", count: monitor.others.count, tint: Ink.muted)
+                        if !monitor.errors.isEmpty {
+                            sectionLabel("Errors", count: monitor.errors.count, tint: Ink.failure)
                                 .padding(.top, monitor.attention.isEmpty ? 0 : 9)
+                            ForEach(monitor.errors) { row($0) }
+                        }
+                        if !monitor.readyResponses.isEmpty {
+                            sectionLabel("Ready to review", count: monitor.readyResponses.count, tint: Ink.success)
+                                .padding(.top, monitor.attention.isEmpty && monitor.errors.isEmpty ? 0 : 9)
+                            ForEach(monitor.readyResponses) { row($0) }
+                        }
+                        if !monitor.others.isEmpty {
+                            sectionLabel("Sessions", count: monitor.others.count, tint: Ink.muted)
+                                .padding(.top, monitor.attention.isEmpty && monitor.errors.isEmpty && monitor.readyResponses.isEmpty ? 0 : 9)
                             ForEach(monitor.others) { row($0) }
                         }
                     }
@@ -175,7 +185,7 @@ struct AgentsView: View {
                 }
                 .font(.system(size: 10)).lineLimit(1)
                 if status == .needsAttention || status == .unknown || status == .error {
-                    Text(status == .unknown ? "Activity not confirmed · check your agent" : (status == .error && !session.pendingRequestIDs.isEmpty ? "Response needed in your agent" : session.detail))
+                    Text(status == .unknown ? "Activity not confirmed · check your agent" : (status == .error && session.needsAttention() ? "Response needed in your agent" : session.detail))
                         .font(.system(size: 10)).foregroundStyle(Ink.muted).lineLimit(1)
                 }
             }
@@ -193,7 +203,8 @@ struct AgentsView: View {
                 if status == .ready || status == .error {
                     Divider()
                     Button("Mark reviewed") { monitor.acknowledge(session) }
-                        .disabled(session.acknowledgedAt != nil || !session.pendingRequestIDs.isEmpty)
+                        .disabled(session.acknowledgedAt != nil || session.needsAttention()
+                                  || (status == .ready && !session.pendingRequestIDs.isEmpty))
                 }
             } label: {
                 Image(systemName: copiedID == session.id ? "checkmark" : status.symbol)
@@ -263,9 +274,11 @@ struct CompactAgentsLeading: View {
     let attention: [AgentSession]
     let reduceMotion: Bool
     let isVisible: Bool
+    private var requests: [AgentSession] { attention.filter { $0.needsAttention() } }
+    private var hasError: Bool { attention.contains { $0.attentionKind() == .error } }
     var body: some View {
         HStack(spacing: 7) {
-            Image(systemName: !attention.isEmpty ? "hand.raised.fill" : "circle.dotted")
+            Image(systemName: !requests.isEmpty ? "hand.raised.fill" : hasError ? "exclamationmark.circle.fill" : "circle.dotted")
                 .font(.system(size: 16, weight: .medium))
                 .symbolEffect(.pulse, options: .repeating, isActive: isVisible && !reduceMotion && monitor.hasCompactActivity)
             VStack(alignment: .leading, spacing: 1) {
@@ -273,7 +286,7 @@ struct CompactAgentsLeading: View {
                 Text("\(monitor.workingCount) working").font(.system(size: 9)).foregroundStyle(Ink.muted)
             }
         }
-        .foregroundStyle(!attention.isEmpty ? Ink.primary : Ink.success)
+        .foregroundStyle(!requests.isEmpty ? Ink.primary : hasError ? Ink.failure : Ink.success)
         .accessibilityHidden(true)
     }
 }
@@ -281,12 +294,19 @@ struct CompactAgentsLeading: View {
 struct CompactAgentsTrailing: View {
     @ObservedObject var monitor: AgentMonitor
     let attention: [AgentSession]
+    private var requests: [AgentSession] { attention.filter { $0.needsAttention() } }
+    private var errors: [AgentSession] { attention.filter { $0.attentionKind() == .error } }
+    private var label: String {
+        if !requests.isEmpty { return "\(requests.count) need\(requests.count == 1 ? "s" : "") you" }
+        if !errors.isEmpty { return "\(errors.count) error\(errors.count == 1 ? "" : "s")" }
+        return "In progress"
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(!attention.isEmpty ? "\(attention.count) need\(attention.count == 1 ? "s" : "") you" : "In progress")
+            Text(label)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(!attention.isEmpty ? Ink.primary : Ink.text)
-            Text(attention.first?.title ?? monitor.visibleSessions.first(where: { $0.effectiveStatus() == .working })?.title ?? "Agents")
+                .foregroundStyle(!requests.isEmpty ? Ink.primary : !errors.isEmpty ? Ink.failure : Ink.text)
+            Text(requests.first?.title ?? errors.first?.title ?? monitor.visibleSessions.first(where: { $0.effectiveStatus() == .working })?.title ?? "Agents")
                 .font(.system(size: 9)).foregroundStyle(Ink.muted)
         }
         .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 13)
