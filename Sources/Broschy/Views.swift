@@ -39,11 +39,12 @@ struct NotchRootView: View {
     @ObservedObject var store: FlowStore
     @ObservedObject var state: PanelState
     @ObservedObject var spotify: SpotifyController
+    @ObservedObject var agents: AgentMonitor
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 expandedHeader
-                ExpandedContent(store: store, state: state, spotify: spotify)
+                ExpandedContent(store: store, state: state, spotify: spotify, agents: agents)
                     .frame(height: 350)
                 .opacity(state.expanded ? 1 : 0)
                 .offset(y: state.expanded || state.reduceMotion ? 0 : -12)
@@ -132,13 +133,16 @@ struct NotchRootView: View {
 
     var compact: some View {
         Button {
-            if compactTrack != nil { state.tab = 3 }
+            if state.showsCompactAgents { state.tab = 4 }
+            else if compactTrack != nil { state.tab = 3 }
             state.open?()
         } label: {
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     Group {
-                        if let track = compactTrack {
+                        if state.showsCompactAgents {
+                            CompactAgentsLeading(monitor: agents, reduceMotion: state.reduceMotion, isVisible: !state.expanded)
+                        } else if let track = compactTrack {
                             CompactMusicArtwork(track: track, isVisible: !state.expanded,
                                                 reduceMotion: state.reduceMotion, height: state.notchHeight)
                         } else {
@@ -151,7 +155,9 @@ struct NotchRootView: View {
                     .frame(width: compactWingWidth)
                     Color.clear.frame(width: state.notchWidth)
                     Group {
-                        if let track = compactTrack {
+                        if state.showsCompactAgents {
+                            CompactAgentsTrailing(monitor: agents)
+                        } else if let track = compactTrack {
                             CompactMusicDetails(track: track, isVisible: !state.expanded,
                                                 reduceMotion: state.reduceMotion, height: state.notchHeight)
                         } else {
@@ -187,9 +193,10 @@ struct NotchRootView: View {
 
     var compactWingWidth: CGFloat { max(0, (state.compactWidth - state.notchWidth) / 2) }
     var compactTrack: SpotifySnapshot? {
-        state.showsCompactMusic && spotify.status == .connected ? spotify.snapshot : nil
+        !state.showsCompactAgents && state.showsCompactMusic && spotify.status == .connected ? spotify.snapshot : nil
     }
     var compactLabel: String {
+        if state.showsCompactAgents { return "Open Agents. \(agents.workingCount) working, \(agents.needsYouCount) need your attention." }
         guard let track = compactTrack else { return "Open Broschy. \(compactText)" }
         return "\(track.isPlaying ? "Playing" : "Paused"): \(track.title) by \(track.artist). Open Music."
     }
@@ -237,12 +244,14 @@ struct ExpandedContent: View {
     @ObservedObject var store: FlowStore
     @ObservedObject var state: PanelState
     @ObservedObject var spotify: SpotifyController
+    @ObservedObject var agents: AgentMonitor
     @Environment(\.flowReduceMotion) var reduceMotion
     @Namespace private var tabSelection
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 3) {
+                tab("Agents", symbol: "circle.dotted", index: 4)
                 tab("Focus", symbol: "scope", index: 0)
                 tab("Music", symbol: "music.note", index: 3)
                 tab("Signals", symbol: "terminal", index: 1)
@@ -257,6 +266,7 @@ struct ExpandedContent: View {
                 case 1: SignalsView(store: store)
                 case 2: LaterView(store: store)
                 case 3: MusicView(spotify: spotify)
+                case 4: AgentsView(monitor: agents, state: state)
                 default: FocusView(store: store, state: state)
                 }
             }
@@ -273,7 +283,7 @@ struct ExpandedContent: View {
                         .help(store.storageError ?? "")
                 } else {
                     Image(systemName: "lock.shield").font(.system(size: 9))
-                    Text(state.tab == 3 ? "Spotify on this Mac" : "Stored locally")
+                    Text(state.tab == 3 ? "Spotify on this Mac" : state.tab == 4 ? "Local events · last 24 hours" : "Stored locally")
                 }
                 Spacer()
                 HStack(spacing: 5) {
@@ -292,10 +302,10 @@ struct ExpandedContent: View {
         Button {
             withAnimation(reduceMotion ? nil : FlowMotion.selection) { state.tab = index }
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: symbol).font(.system(size: 11))
-                Text(title).font(.system(size: 12, weight: .medium))
-                if index == 1 && store.jobs.contains(where: { $0.status == .running }) {
+            HStack(spacing: 4) {
+                Image(systemName: symbol).font(.system(size: 10))
+                Text(title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                if (index == 1 && store.jobs.contains(where: { $0.status == .running })) || (index == 4 && agents.needsYouCount > 0) {
                     Circle().fill(Ink.primary).frame(width: 4, height: 4)
                 }
             }

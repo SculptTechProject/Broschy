@@ -9,8 +9,9 @@ let package = Package(
         .executable(name: "broschy-cli", targets: ["BroschyCLI"])
     ],
     targets: [
-        .executableTarget(name: "Broschy"),
-        .executableTarget(name: "BroschyCLI")
+        .target(name: "AgentBridge"),
+        .executableTarget(name: "Broschy", dependencies: ["AgentBridge"]),
+        .executableTarget(name: "BroschyCLI", dependencies: ["AgentBridge"])
     ],
     swiftLanguageModes: [.v5]
 )
