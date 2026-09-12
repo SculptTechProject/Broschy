@@ -24,6 +24,10 @@ func usage() {
       broschy-cli run [--label \"Tests\"] -- <executable> [arguments...]
       broschy-cli notify --title \"Done\" --status succeeded|failed
 
+      broschy-cli agent hook --provider codex|claude|opencode
+      broschy-cli agent list
+      broschy-cli agent acknowledge --provider <provider> --session <id>
+
     Examples:
       broschy-cli run --label \"Swift tests\" -- /usr/bin/swift test
       broschy-cli run --label \"Build\" -- npm run build
@@ -188,6 +192,7 @@ if arguments.isEmpty || ["--help", "-h", "help"].contains(arguments[0]) {
 switch arguments[0] {
 case "run": exit(runCommand(Array(arguments.dropFirst())))
 case "notify": exit(notify(Array(arguments.dropFirst())))
+case "agent": exit(agentCommand(Array(arguments.dropFirst())))
 default: diagnostic("Unknown command. Use --help."); exit(64)
 }
 #endif

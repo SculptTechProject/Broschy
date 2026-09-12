@@ -5,7 +5,7 @@
 <h1 align="center">Broschy</h1>
 
 <p align="center"><strong>A little more life around your notch.</strong><br>
-Focus, music, command results, and quick notes — one glance away.</p>
+Agents, focus, music, command results, and quick notes — one glance away.</p>
 
 <p align="center">
   <a href="https://github.com/SculptTechProject/Broschy/actions/workflows/ci.yml"><img src="https://github.com/SculptTechProject/Broschy/actions/workflows/ci.yml/badge.svg" alt="Build and test"></a>
@@ -14,7 +14,7 @@ Focus, music, command results, and quick notes — one glance away.</p>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-5eaaa1" alt="MIT license"></a>
 </p>
 
-<p align="center"><a href="#get-started">Get started</a> · <a href="#spotify">Spotify</a> · <a href="#terminal-signals">Terminal signals</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
+<p align="center"><a href="#get-started">Get started</a> · <a href="#agents">Agents</a> · <a href="#spotify">Spotify</a> · <a href="#terminal-signals">Terminal signals</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
 
 Broschy is a small, native macOS companion that lives around your MacBook's notch. Hover to open it, take care of something, and get back to your work. A translucent compact strip keeps the essentials visible without opening a full window.
 
@@ -28,10 +28,11 @@ Broschy is a small, native macOS companion that lives around your MacBook's notc
 
 <p align="center"><sub>Actual app views with sample data. Glass adapts to your appearance and the content behind it.</sub></p>
 
-## Four things, close at hand
+## Five things, close at hand
 
 | | What it does |
 | :--- | :--- |
+| **Agents** | Monitor local Codex, Claude Code, and OpenCode sessions. See who is working, waiting for you, or ready for review. |
 | **Focus** | Keep one task in view. Start a 25, 50, or 90-minute session, pause it, and pick up where you left off. The timer accounts for sleep. |
 | **Music** | See the current Spotify track and artwork. Play, pause, skip, seek, and adjust Spotify's volume. The compact view keeps the title, artist, elapsed time, and animated playback bars nearby. |
 | **Signals** | Run a build or test through the bundled CLI and see when it finishes. Success, failure, and cancellation appear in the panel. |
@@ -42,12 +43,12 @@ Broschy is a small, native macOS companion that lives around your MacBook's notc
 - **Liquid Glass, expanded and compact.** Native glass on macOS 26, with a standard macOS material on earlier versions.
 - **Light and Dark, automatically.** Text, accents, and surfaces follow the system appearance, including Auto.
 - **Motion with a purpose.** Smooth open/close transitions and small playback indicators; Reduce Motion and Reduce Transparency are respected.
-- **One place to look.** Active focus sessions and recent command results take priority over music in the compact view.
+- **One place to look.** Agent attention comes first; active focus sessions, recent command results, and working agents also take priority over music in the compact view.
 - **Native and small.** SwiftUI, AppKit, a bundled CLI, and no third-party Swift dependencies. English throughout.
 
 ## Get started
 
-**Current version: 0.6.0.** Broschy is an early, source-first release. Build it locally with **Xcode 26 or later** and its macOS SDK. The app's deployment target is **macOS 14**; hands-on validation has been on macOS 26 and Apple Silicon. The build produces an app for your Mac's architecture.
+**Current version: 0.7.1.** Broschy is an early, source-first release. Build it locally with **Xcode 26 or later** and its macOS SDK. The app's deployment target is **macOS 14**; hands-on validation has been on macOS 26 and Apple Silicon. The build produces an app for your Mac's architecture.
 
 ```sh
 git clone https://github.com/SculptTechProject/Broschy.git
@@ -69,6 +70,16 @@ The build script assembles `build/Broschy.app` and signs it locally with an ad h
 | Quit Broschy | **⋯ → Quit Broschy**, the menu bar menu, or **Command + Q** while the panel has focus |
 
 Hiding the panel keeps Broschy running. To reopen it after quitting, launch `Broschy.app`. Broschy has no Dock icon and does not automatically start at login. On a screen without a notch, it appears at the center of the top edge.
+
+## Agents
+
+<p align="center"><img src="docs/assets/agents-dark.png" alt="Agents with sample Claude Code, Codex, and OpenCode sessions, including a Needs you queue" width="480"><br><sub>Sample sessions in Dark appearance.</sub></p>
+
+Open **Agents → Connections** to connect Codex, Claude Code, or OpenCode. Restart the connected tool; Codex may require you to review the new hooks with `/hooks`. Sessions appear when they send an event.
+
+The **Needs you** queue gathers questions, permission requests, responses ready for review, and errors. The compact notch signals activity without opening a full window. Session actions let you copy a terminal resume command, open the project folder, and mark a response reviewed.
+
+This is a local monitor for supported CLI hooks and plugins: it does not open transcripts or store prompts, tool arguments, or output. It does not send prompts, approve tools, or stop agents. The Codex desktop app is not currently a verified integration. Activity is checked against the originating process when available; stale activity becomes “Status unknown” instead of staying “Working”. “Ready to review” means a response stopped, not that the task necessarily succeeded. Setup needs Python 3. See the [integration guide](docs/AGENTS.md) for compatibility, configuration, removal, and limitations.
 
 ## Spotify
 
@@ -103,14 +114,15 @@ Broschy sees commands you run through its CLI and results you explicitly send. I
 
 ## Your data stays on your Mac
 
-The task, timer, note, and command history are stored locally. Broschy has no account, analytics, or cloud sync. Command records contain a label, working directory, status, timestamps, and an exit code when available; command arguments and output are not saved. Album artwork is fetched over HTTPS from URLs returned by Spotify. No listening history or Spotify tokens are stored.
+The task, timer, note, and command history are stored locally. Broschy has no account, analytics, or cloud sync. Agent snapshots contain session and project identifiers, status, generic activity labels, and timestamps; prompts and tool contents are not saved. Integration setup retains local configuration backups. Command records contain a label, working directory, status, timestamps, and an exit code when available; command arguments and output are not saved. Album artwork is fetched over HTTPS from URLs returned by Spotify. No listening history or Spotify tokens are stored.
 
 For compatibility with earlier installations, the storage folder remains:
 
 ```text
 ~/Library/Application Support/NotchFlow/
 ├── state.json
-└── jobs/
+├── jobs/
+└── agents/
 ```
 
 Use **Open Broschy Data** from the menu bar to find it. The legacy bundle identifier is also retained so existing preferences and macOS permissions keep the same application identity. See [development notes](docs/DEVELOPMENT.md) for details.
@@ -118,7 +130,7 @@ Use **Open Broschy Data** from the menu bar to find it. The legacy bundle identi
 ## Development
 
 ```sh
-bash test.sh   # Isolated timer, storage, CLI, and mocked Spotify checks
+bash test.sh   # Isolated core, agent bridge, installer, and mocked Spotify checks
 bash build.sh  # Release app bundle, icon, and local signature
 ```
 

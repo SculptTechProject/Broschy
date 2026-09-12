@@ -27,6 +27,8 @@ jobs:
         run: |
           xcodebuild -version
           swift --version
+          node --version
+          python3 --version
       - name: Run isolated checks
         run: bash test.sh
       - name: Build the app

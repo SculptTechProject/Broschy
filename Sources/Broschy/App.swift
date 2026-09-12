@@ -13,12 +13,14 @@ final class PanelState: ObservableObject {
     @Published var reduceMotion = false
     @Published var reduceTransparency = false
     @Published var pinned = false
+    @Published var hasPresentedPopover = false
     @Published var tab = 0
     @Published var notchWidth: CGFloat = 180
     @Published var notchHeight: CGFloat = 32
     @Published var panelWidth: CGFloat = 448
     @Published var showsCompactMusic = false
-    var compactWidth: CGFloat { min(panelWidth, notchWidth + (showsCompactMusic ? 264 : 128)) }
+    @Published var showsCompactAgents = false
+    var compactWidth: CGFloat { min(panelWidth, notchWidth + ((showsCompactMusic || showsCompactAgents) ? 264 : 128)) }
     @Published var shortcutAvailable = false
     @Published var selectedMinutes = 25
     var open: (() -> Void)?
@@ -43,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = FlowStore()
     let state = PanelState()
     let spotify = SpotifyController()
+    let agents = AgentMonitor()
     var panel: NotchPanel!
     var statusItem: NSStatusItem!
     var observers: [NSObjectProtocol] = []
@@ -52,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var transitionGeneration: UInt = 0
     var wantsExpanded = false
     var pendingCompactMusic = false
+    var pendingCompactAgents = false
     var accessibilityObserver: NSObjectProtocol?
     var hotKey: EventHotKeyRef?
     var hotKeyHandler: EventHandlerRef?
@@ -82,29 +86,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         }
-        panel.contentView = InteractiveHostingView(rootView: NotchRootView(store: store, state: state, spotify: spotify))
+        panel.contentView = InteractiveHostingView(rootView: NotchRootView(store: store, state: state, spotify: spotify, agents: agents))
         state.open = { [weak self] in self?.expand(focus: true) }
         state.close = { [weak self] in self?.collapse() }
         state.hover = { [weak self] inside in self?.hover(inside) }
         configureMenu()
         state.selectedMinutes = store.timerState.totalSeconds / 60
         if CommandLine.arguments.contains("--music") { state.tab = 3 }
+        if CommandLine.arguments.contains("--agents") { state.tab = 4 }
         registerShortcut()
         updateScreen()
         panel.orderFrontRegardless()
         Publishers.CombineLatest4(spotify.$status, spotify.$snapshot, store.$timerState, store.$jobs)
-            .map { status, track, timer, jobs in
+            .combineLatest(agents.$sessions)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] values, sessions in
+                guard let self else { return }
+                let (status, track, timer, jobs) = values
                 let recentResult = jobs.contains { job in
                     guard let finished = job.finishedAt else { return false }
                     return Date().timeIntervalSince(finished) < 12
                 }
-                return status == .connected && track?.title.isEmpty == false
-                    && !timer.didFinish && !(timer.hasStarted && timer.remainingSeconds > 0)
-                    && !jobs.contains(where: { $0.status == .running }) && !recentResult
+                let focusOrJob = timer.didFinish || (timer.hasStarted && timer.remainingSeconds > 0)
+                    || jobs.contains(where: { $0.status == .running }) || recentResult
+                let visible = sessions.filter { $0.updatedAt > Date().addingTimeInterval(-86400) && $0.effectiveStatus() != .closed }
+                let agentActivity = visible.contains(where: { $0.needsAttention() })
+                    || (!focusOrJob && visible.contains(where: { $0.effectiveStatus() == .working }))
+                let music = !agentActivity && !focusOrJob && status == .connected && track?.title.isEmpty == false
+                self.updateCompactActivity(music: music, agents: agentActivity)
             }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.updateCompactMusic($0) }
             .store(in: &subscriptions)
 
         accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -119,7 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.wantsExpanded, !self.panel.isKeyWindow, !self.state.pinned, !self.panel.frame.contains(NSEvent.mouseLocation) else { return }
+                guard let self, self.wantsExpanded, !self.panel.isKeyWindow, !self.state.pinned, !self.state.hasPresentedPopover, !self.panel.frame.contains(NSEvent.mouseLocation) else { return }
                 self.collapse()
             }
         })
@@ -263,6 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         transitionWork = nil
         withoutAnimation {
             state.showsCompactMusic = pendingCompactMusic
+            state.showsCompactAgents = pendingCompactAgents
             state.canvasExpanded = false
         }
         // Ordering out releases AppKit/window-server focus correctly; doing this
@@ -272,12 +283,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderFrontRegardless()
     }
 
-    func updateCompactMusic(_ visible: Bool) {
-        pendingCompactMusic = visible
-        // Keep the closing surface's geometry stable; apply a new priority once it settles.
+    func updateCompactActivity(music: Bool, agents: Bool) {
+        pendingCompactMusic = music
+        pendingCompactAgents = agents
+        // Keep the closing surface stable; apply new activity when it settles.
         guard wantsExpanded || !state.canvasExpanded else { return }
-        guard state.showsCompactMusic != visible else { return }
-        withoutAnimation { state.showsCompactMusic = visible }
+        guard state.showsCompactMusic != music || state.showsCompactAgents != agents else { return }
+        withoutAnimation {
+            state.showsCompactMusic = music
+            state.showsCompactAgents = agents
+        }
         position()
     }
 
@@ -287,7 +302,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             if inside {
                 self.expand(focus: false)
-            } else if !self.state.pinned && !self.panel.isKeyWindow {
+            } else if !self.state.pinned && !self.state.hasPresentedPopover && !self.panel.isKeyWindow {
                 self.collapse()
             }
         }
