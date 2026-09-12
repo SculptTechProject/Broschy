@@ -10,4 +10,10 @@ swiftc -swift-version 5 -D SPOTIFY_TESTS -parse-as-library Sources/Broschy/Spoti
 "$test_dir/spotify-checks"
 swiftc -swift-version 5 -parse-as-library -I "$test_dir" -L "$test_dir" -lAgentBridge -Xlinker -rpath -Xlinker "$test_dir" Sources/BroschyCLI/AgentCommand.swift Tests/AgentBridgeTests.swift -o "$test_dir/agent-checks"
 "$test_dir/agent-checks" "$test_dir"
+swiftc -swift-version 5 -parse-as-library -I "$test_dir" -L "$test_dir" -lAgentBridge -Xlinker -rpath -Xlinker "$test_dir" Sources/Broschy/PanelPreferences.swift Tests/PanelPreferencesTests.swift -o "$test_dir/preferences-checks"
+"$test_dir/preferences-checks"
+swiftc -swift-version 5 -parse-as-library -I "$test_dir" -L "$test_dir" -lAgentBridge -Xlinker -rpath -Xlinker "$test_dir" Sources/Broschy/PanelPreferences.swift Sources/Broschy/PanelActivity.swift Tests/PanelActivityTests.swift -o "$test_dir/activity-checks"
+"$test_dir/activity-checks"
+swiftc -swift-version 5 -parse-as-library Sources/Broschy/BuildWatchModels.swift Sources/Broschy/BuildWatchController.swift Tests/BuildWatchTests.swift -o "$test_dir/build-watch-checks"
+"$test_dir/build-watch-checks"
 python3 Tests/test_agent_integrations.py

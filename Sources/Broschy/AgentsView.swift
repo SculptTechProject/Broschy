@@ -111,9 +111,9 @@ struct AgentsView: View {
         }
         .padding(.bottom, 10)
         .onAppear { setup.refresh() }
-        .onChange(of: showsSetup) { _, presented in state.hasPresentedPopover = presented }
+        .onChange(of: showsSetup) { _, presented in state.hasAgentPopover = presented }
         .onChange(of: state.expanded) { _, expanded in if !expanded { showsSetup = false } }
-        .onDisappear { state.hasPresentedPopover = false }
+        .onDisappear { showsSetup = false; state.hasAgentPopover = false }
     }
 
     private var hasConnections: Bool { setup.states.values.contains { $0.installed } }
@@ -260,11 +260,12 @@ struct AgentConnectionsView: View {
 
 struct CompactAgentsLeading: View {
     @ObservedObject var monitor: AgentMonitor
+    let attention: [AgentSession]
     let reduceMotion: Bool
     let isVisible: Bool
     var body: some View {
         HStack(spacing: 7) {
-            Image(systemName: monitor.needsYouCount > 0 ? "hand.raised.fill" : "circle.dotted")
+            Image(systemName: !attention.isEmpty ? "hand.raised.fill" : "circle.dotted")
                 .font(.system(size: 16, weight: .medium))
                 .symbolEffect(.pulse, options: .repeating, isActive: isVisible && !reduceMotion && monitor.hasCompactActivity)
             VStack(alignment: .leading, spacing: 1) {
@@ -272,19 +273,20 @@ struct CompactAgentsLeading: View {
                 Text("\(monitor.workingCount) working").font(.system(size: 9)).foregroundStyle(Ink.muted)
             }
         }
-        .foregroundStyle(monitor.needsYouCount > 0 ? Ink.primary : Ink.success)
+        .foregroundStyle(!attention.isEmpty ? Ink.primary : Ink.success)
         .accessibilityHidden(true)
     }
 }
 
 struct CompactAgentsTrailing: View {
     @ObservedObject var monitor: AgentMonitor
+    let attention: [AgentSession]
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(monitor.needsYouCount > 0 ? "\(monitor.needsYouCount) need\(monitor.needsYouCount == 1 ? "s" : "") you" : "In progress")
+            Text(!attention.isEmpty ? "\(attention.count) need\(attention.count == 1 ? "s" : "") you" : "In progress")
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(monitor.needsYouCount > 0 ? Ink.primary : Ink.text)
-            Text(monitor.attention.first?.title ?? monitor.visibleSessions.first(where: { $0.effectiveStatus() == .working })?.title ?? "Agents")
+                .foregroundStyle(!attention.isEmpty ? Ink.primary : Ink.text)
+            Text(attention.first?.title ?? monitor.visibleSessions.first(where: { $0.effectiveStatus() == .working })?.title ?? "Agents")
                 .font(.system(size: 9)).foregroundStyle(Ink.muted)
         }
         .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 13)
