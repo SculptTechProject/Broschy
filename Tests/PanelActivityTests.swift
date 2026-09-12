@@ -1,3 +1,4 @@
+import AgentBridge
 import Foundation
 
 @main
@@ -20,6 +21,16 @@ struct PanelActivityTests {
         precondition(choose(working: true, build: true) == .buildWatch)
         precondition(choose(working: true) == .agents)
         precondition(choose() == .music)
+        // A completed response stays in Agents without blocking music or an idle notch.
+        let now = Date()
+        let completed = AgentSession(provider: .codex, sessionID: "finished", cwd: "/sample/project",
+                                     status: .ready, updatedAt: now)
+        for quiet in [false, true] {
+            let attention = AgentAttentionPolicy.compactAttention(from: [completed],
+                visibleTabs: Set(PanelTab.allCases), quietFocusEnabled: quiet, focusActive: quiet, now: now)
+            precondition(choose(quiet: quiet, attention: !attention.isEmpty) == .music)
+            precondition(choose(quiet: quiet, attention: !attention.isEmpty, music: false) == .idle)
+        }
         precondition(choose([.later], attention: true, working: true, focus: true,
                             local: true, recent: true, build: true) == .idle)
         precondition(choose([.music], attention: true, focus: true, local: true, recent: true) == .music)

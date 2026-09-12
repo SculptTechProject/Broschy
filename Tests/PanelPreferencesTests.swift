@@ -95,18 +95,21 @@ enum PanelPreferencesTests {
 
         let normal = AgentAttentionPolicy.compactAttention(from: sessions, visibleTabs: Set(PanelTab.allCases),
                                                            quietFocusEnabled: false, focusActive: true, now: now)
-        precondition(normal.map(\.sessionID) == ["ready", "waiting", "error"])
+        precondition(normal.map(\.sessionID) == ["waiting", "error"],
+                     "A finished response must not take over the compact notch or request input.")
         let quiet = AgentAttentionPolicy.compactAttention(from: sessions, visibleTabs: Set(PanelTab.allCases),
                                                           quietFocusEnabled: true, focusActive: true, now: now)
         precondition(quiet.map(\.sessionID) == ["waiting"], "Only an active question or permission request should interrupt Quiet Focus.")
         let paused = AgentAttentionPolicy.compactAttention(from: sessions, visibleTabs: Set(PanelTab.allCases),
                                                            quietFocusEnabled: true, focusActive: false, now: now)
-        precondition(paused == normal, "Pausing or finishing Focus should reveal queued responses and errors.")
+        precondition(paused == normal, "Pausing or finishing Focus should reveal errors without promoting finished responses.")
         let hidden = AgentAttentionPolicy.compactAttention(from: sessions, visibleTabs: [.focus, .music],
                                                            quietFocusEnabled: false, focusActive: false, now: now)
         precondition(hidden.isEmpty, "A hidden Agents module must never supply a compact interruption.")
-        precondition(sessions == originalSessions && ready.needsAttention(at: now) && error.needsAttention(at: now),
-                     "Quiet Focus must not acknowledge or remove items from the full Agents queue.")
+        precondition(sessions == originalSessions && ready.attentionKind(at: now) == .responseReady
+                     && error.attentionKind(at: now) == .error && waiting.needsAttention(at: now)
+                     && !ready.needsAttention(at: now) && !error.needsAttention(at: now),
+                     "Responses and errors remain reviewable without claiming they require input.")
 
         let errorWithRequest = sample("error-request", .error, pending: ["question-1"])
         precondition(AgentAttentionPolicy.requiresInterruption(errorWithRequest, quietFocusEnabled: true,

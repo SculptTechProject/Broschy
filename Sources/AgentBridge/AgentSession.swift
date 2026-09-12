@@ -17,6 +17,11 @@ public enum AgentStatus: String, Codable, CaseIterable, Sendable {
     case idle, working, needsAttention, ready, error, closed, unknown
 }
 
+/// A finished response is available to read; only a pending request needs input.
+public enum AgentAttentionKind: Equatable, Sendable {
+    case inputRequired, responseReady, error, none
+}
+
 /// A deliberately small snapshot. It never contains prompts, tool input/output,
 /// transcripts, permission descriptions, or generated conversation titles.
 public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
@@ -88,9 +93,28 @@ public struct AgentSession: Codable, Equatable, Identifiable, Sendable {
 
     public func status(at date: Date) -> AgentStatus { effectiveStatus(at: date) }
 
-    public func needsAttention(at date: Date = Date()) -> Bool {
-        let current = effectiveStatus(at: date)
-        return current == .needsAttention || ((current == .ready || current == .error) && acknowledgedAt == nil)
+    public func attentionKind(at date: Date = Date(), ownerLiveness: AgentProcessLiveness? = nil) -> AgentAttentionKind {
+        let current = effectiveStatus(at: date, ownerLiveness: ownerLiveness)
+        if current == .needsAttention { return .inputRequired }
+        if current == .error && !pendingRequestIDs.isEmpty {
+            // An error remains reviewable after exit, but an accompanying
+            // request must still satisfy the normal freshness/owner rules.
+            var pending = self
+            pending.status = .needsAttention
+            if pending.effectiveStatus(at: date, ownerLiveness: ownerLiveness) == .needsAttention {
+                return .inputRequired
+            }
+        }
+        guard acknowledgedAt == nil else { return .none }
+        switch current {
+        case .ready: return .responseReady
+        case .error: return .error
+        default: return .none
+        }
+    }
+
+    public func needsAttention(at date: Date = Date(), ownerLiveness: AgentProcessLiveness? = nil) -> Bool {
+        attentionKind(at: date, ownerLiveness: ownerLiveness) == .inputRequired
     }
 
     static func projectTitle(_ cwd: String) -> String {

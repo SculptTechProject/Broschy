@@ -44,12 +44,12 @@ Broschy is a small, native macOS companion that lives around your MacBook's notc
 - **Light and Dark, automatically.** Text, accents, and surfaces follow the system appearance, including Auto.
 - **Motion with a purpose.** Smooth open/close transitions and small playback indicators; Reduce Motion and Reduce Transparency are respected.
 - **Your layout.** Choose which tabs appear, including which modules can use the compact notch.
-- **Quiet Focus.** Keep a running focus session in view while responses and build results remain available in the panel. Active agent questions and permission requests can still interrupt.
+- **Quiet Focus.** Keep a running focus session in view while working-agent, error, and result indicators stay out of the compact notch. Fresh agent questions and permission requests can still interrupt.
 - **Native and small.** SwiftUI, AppKit, a bundled CLI, and no third-party Swift dependencies. English throughout.
 
 ## Get started
 
-**Current version: 0.8.1.** Broschy is an early, source-first release. Build it locally with **Xcode 26 or later** and its macOS SDK. The app's deployment target is **macOS 14**; hands-on validation has been on macOS 26 and Apple Silicon. The build produces an app for your Mac's architecture.
+**Current version: 0.8.2.** [Download the Apple Silicon preview](https://github.com/SculptTechProject/Broschy/releases/tag/v0.8.2), or build it locally with **Xcode 26 or later** and its macOS SDK. The app's deployment target is **macOS 14**; hands-on validation has been on macOS 26 and Apple Silicon. The local build produces an app for your Mac's architecture.
 
 ```sh
 git clone https://github.com/SculptTechProject/Broschy.git
@@ -71,13 +71,15 @@ The build script assembles `build/Broschy.app` and signs it locally with an ad h
 | Hide it | **Esc** or the chevron in the panel |
 | Quit Broschy | **⋯ → Quit Broschy**, the menu bar menu, or **Command + Q** while the panel has focus |
 
+Look for Broschy's notched-screen icon in the menu bar. It is a native monochrome template that adapts to light and dark menu bars.
+
 Hiding the panel keeps Broschy running. To reopen it after quitting, launch `Broschy.app`. Broschy has no Dock icon and does not automatically start at login. On a screen without a notch, it appears at the center of the top edge.
 
 ## Settings
 
 Open **Settings…** to choose your visible tabs and turn **Quiet Focus** on or off. All five tabs are visible by default. Hiding a module also removes its compact indicator; its timer, playback, monitoring, or other background work continues. At least one tab stays visible, and hiding the selected tab moves the panel to a visible one.
 
-Quiet Focus is **off by default** and applies only while the countdown is running. It holds agent responses, reviewable errors, and command or workflow results out of the compact notch. Active agent questions and permission requests can still interrupt. Responses and errors remain in the full **Agents → Needs you** queue. Pausing or finishing the timer restores normal compact priority.
+Quiet Focus is **off by default** and applies only while the countdown is running. It keeps working-agent, error, and command or workflow result indicators out of the compact notch. Fresh agent questions and permission requests can still interrupt. Responses stay in **Agents → Ready to review** and never take over the compact notch; unreviewed failures stay in **Agents → Errors**. Pausing or finishing the timer restores normal compact priority, including red error indicators.
 
 These preferences affect Broschy's presentation. They do not change the macOS Focus mode or notifications from other apps. Resetting them restores the default layout and turns Quiet Focus off; connections, notes, timers, and history are retained.
 
@@ -87,7 +89,7 @@ These preferences affect Broschy's presentation. They do not change the macOS Fo
 
 Open **Agents → Connections** to connect Codex, Claude Code, or OpenCode. Restart the connected tool; Codex may require you to review the new hooks with `/hooks`. Sessions appear when they send an event.
 
-The **Needs you** queue gathers questions, permission requests, responses ready for review, and errors. The compact notch signals activity without opening a full window. Session actions let you copy a terminal resume command, open the project folder, and mark a response reviewed.
+**Needs you** contains only fresh, actionable questions and permission requests. Stopped responses appear separately in **Ready to review** and never take over the compact notch. Unreviewed failures appear in **Errors** and can show a red compact indicator when Quiet Focus is not running. Session actions let you copy a terminal resume command, open the project folder, and mark a response or error reviewed.
 
 This is a local monitor for supported CLI hooks and plugins: it does not open transcripts or store prompts, tool arguments, or output. It does not send prompts, approve tools, or stop agents. The Codex desktop app is not currently a verified integration. Activity is checked against the originating process when available; stale activity becomes “Status unknown” instead of staying “Working”. “Ready to review” means a response stopped, not that the task necessarily succeeded. Setup needs Python 3. See the [integration guide](docs/AGENTS.md) for compatibility, configuration, removal, and limitations.
 

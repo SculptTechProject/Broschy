@@ -348,7 +348,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         main.addItem(editItem)
         NSApp.mainMenu = main
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "inset.filled.topcenter.rectangle", accessibilityDescription: "Broschy")
+        statusItem.button?.image = StatusBarIcon.makeImage()
+        statusItem.button?.toolTip = "Broschy"
         let menu = NSMenu()
         let show = NSMenuItem(title: "Show / Hide Panel", action: #selector(togglePanel), keyEquivalent: "")
         show.target = self

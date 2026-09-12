@@ -130,17 +130,11 @@ enum AgentAttentionPolicy {
         now: Date = Date(),
         ownerLiveness: AgentProcessLiveness? = nil
     ) -> Bool {
-        let status = session.effectiveStatus(at: now, ownerLiveness: ownerLiveness)
-        var activeRequest = status == .needsAttention
-        if status == .error && !session.pendingRequestIDs.isEmpty {
-            // Preserve the error while applying request freshness and process-exit
-            // rules to the unanswered question/permission that accompanies it.
-            var pending = session
-            pending.status = .needsAttention
-            activeRequest = pending.effectiveStatus(at: now, ownerLiveness: ownerLiveness) == .needsAttention
+        switch session.attentionKind(at: now, ownerLiveness: ownerLiveness) {
+        case .inputRequired: return true
+        case .error: return !(quietFocusEnabled && focusActive)
+        case .responseReady, .none: return false
         }
-        if quietFocusEnabled && focusActive { return activeRequest }
-        return activeRequest || ((status == .ready || status == .error) && session.acknowledgedAt == nil)
     }
 
     /// Pass the monitor's visible sessions so its retention and ordering remain unchanged.

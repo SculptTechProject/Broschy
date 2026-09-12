@@ -219,7 +219,11 @@ struct NotchRootView: View {
     }
     var compactLabel: String {
         if state.compactContent == .buildWatch { return "Open Build Watch. \(builds.compactRun?.statusText ?? "GitHub Actions")" }
-        if state.showsCompactAgents { return "Open Agents. \(agents.workingCount) working, \(compactAttention.count) need your attention." }
+        if state.showsCompactAgents {
+            let requests = compactAttention.filter { $0.needsAttention() }.count
+            let errors = compactAttention.filter { $0.attentionKind() == .error }.count
+            return "Open Agents. \(agents.workingCount) working, \(requests) input request\(requests == 1 ? "" : "s"), \(errors) error\(errors == 1 ? "" : "s")."
+        }
         guard let track = compactTrack else { return "Open Broschy. \(compactText)" }
         return "\(track.isPlaying ? "Playing" : "Paused"): \(track.title) by \(track.artist). Open Music."
     }
