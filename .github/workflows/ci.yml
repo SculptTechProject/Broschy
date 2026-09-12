@@ -1,0 +1,38 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS · tests and release build
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Run isolated checks
+        run: bash test.sh
+      - name: Build the app
+        run: bash build.sh
+      - name: Verify the bundle
+        run: |
+          plutil -lint build/Broschy.app/Contents/Info.plist
+          codesign --verify --deep --strict --verbose=2 build/Broschy.app
+          build/Broschy.app/Contents/MacOS/broschy-cli --help
