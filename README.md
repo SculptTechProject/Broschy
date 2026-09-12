@@ -49,7 +49,7 @@ Broschy is a small, native macOS companion that lives around your MacBook's notc
 
 ## Get started
 
-**Current version: 0.8.0.** Broschy is an early, source-first release. Build it locally with **Xcode 26 or later** and its macOS SDK. The app's deployment target is **macOS 14**; hands-on validation has been on macOS 26 and Apple Silicon. The build produces an app for your Mac's architecture.
+**Current version: 0.8.1.** Broschy is an early, source-first release. Build it locally with **Xcode 26 or later** and its macOS SDK. The app's deployment target is **macOS 14**; hands-on validation has been on macOS 26 and Apple Silicon. The build produces an app for your Mac's architecture.
 
 ```sh
 git clone https://github.com/SculptTechProject/Broschy.git
@@ -114,6 +114,8 @@ In **Signals → Build Watch**, connect one GitHub.com repository or pull reques
 3. Leave the branch blank to use the repository's default branch, or enter a branch name. A pull request follows its current head commit.
 
 Broschy uses your existing GitHub CLI access and checks up to ten recent workflow runs about every 30 seconds. Failed requests retry less often. A workflow observed active and then completed can show its result in the notch for 12 seconds; existing completed runs on first connection are silent, and repeated results are deduplicated. Runs that finish entirely between polls appear in the list but do not trigger a compact result. Compact visibility and Quiet Focus still apply.
+
+Each row shows a fixed **Updated** date and time from GitHub, not a running duration. A completed workflow appears after the next successful poll; use Refresh for an immediate check.
 
 Open a workflow in GitHub to inspect it. Build Watch only reads status: it does not download workflow logs, rerun jobs, cancel workflows, or merge pull requests. GitHub Enterprise hosts and watching several targets at once are outside this version. Disconnect to stop polling.
 

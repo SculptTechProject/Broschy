@@ -180,6 +180,12 @@ struct BuildWatchView: View {
     private func row(_ run: BuildWatchRun) -> some View {
         let stale = !builds.isLive
         let color = stale ? Ink.muted : run.state.tint
+        // GitHub's updated_at is metadata freshness, not an execution duration.
+        // A relative date keeps ticking even after the workflow has completed.
+        let updateTime = run.updatedAt.formatted(.dateTime.month(.abbreviated).day()
+            .hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).locale(Locale(identifier: "en_GB")))
+        let fullUpdateTime = run.updatedAt.formatted(.dateTime.year().month(.abbreviated).day()
+            .hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).second(.twoDigits).locale(Locale(identifier: "en_GB")))
         return Button { NSWorkspace.shared.open(run.htmlURL) } label: {
             HStack(spacing: 10) {
                 Image(systemName: stale && run.isActive ? "questionmark.circle" : run.state.symbol)
@@ -195,7 +201,7 @@ struct BuildWatchView: View {
                 VStack(alignment: .trailing, spacing: 3) {
                     Text(stale && run.isActive ? "Last seen active" : run.statusText)
                         .font(.system(size: 10, weight: .medium)).foregroundStyle(color).lineLimit(1)
-                    Text(run.updatedAt, style: .relative)
+                    Text("Updated \(updateTime)")
                         .font(.system(size: 9)).foregroundStyle(Ink.muted).lineLimit(1)
                 }
                 Image(systemName: "arrow.up.right").font(.system(size: 9)).foregroundStyle(Ink.muted)
@@ -203,8 +209,8 @@ struct BuildWatchView: View {
             .padding(.vertical, 9).contentShape(Rectangle())
         }
         .buttonStyle(QuietButtonStyle())
-        .help("\(run.name) · \(run.statusText) · Open workflow on GitHub")
-        .accessibilityLabel("\(run.name), \(stale && run.isActive ? "last seen active" : run.statusText). Open workflow on GitHub.")
+        .help("\(run.name) · \(run.statusText) · Last GitHub update: \(fullUpdateTime) · Open workflow on GitHub")
+        .accessibilityLabel("\(run.name), \(stale && run.isActive ? "last seen active" : run.statusText). Updated \(fullUpdateTime). Open workflow on GitHub.")
     }
 
     private var connectionDetail: String {
