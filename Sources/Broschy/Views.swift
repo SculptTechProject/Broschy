@@ -1,3 +1,4 @@
+import AgentBridge
 import AppKit
 import SwiftUI
 
@@ -40,11 +41,13 @@ struct NotchRootView: View {
     @ObservedObject var state: PanelState
     @ObservedObject var spotify: SpotifyController
     @ObservedObject var agents: AgentMonitor
+    @ObservedObject var preferences: PanelPreferences
+    @ObservedObject var builds: BuildWatchController
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 expandedHeader
-                ExpandedContent(store: store, state: state, spotify: spotify, agents: agents)
+                ExpandedContent(store: store, state: state, spotify: spotify, agents: agents, preferences: preferences, builds: builds)
                     .frame(height: 350)
                 .opacity(state.expanded ? 1 : 0)
                 .offset(y: state.expanded || state.reduceMotion ? 0 : -12)
@@ -100,6 +103,14 @@ struct NotchRootView: View {
             .frame(maxWidth: .infinity)
             Color.clear.frame(width: state.notchWidth)
             HStack(spacing: 2) {
+                Button { state.showsSettings.toggle() } label: {
+                    Image(systemName: "gearshape").frame(width: 26, height: 26)
+                }
+                .buttonStyle(QuietButtonStyle())
+                .help("Settings · ⌘,").accessibilityLabel("Settings")
+                .popover(isPresented: $state.showsSettings, arrowEdge: .bottom) {
+                    PanelSettingsView(preferences: preferences)
+                }
                 Menu {
                     Button("Hide panel") { state.close?() }
                     Divider()
@@ -133,15 +144,20 @@ struct NotchRootView: View {
 
     var compact: some View {
         Button {
-            if state.showsCompactAgents { state.tab = 4 }
-            else if compactTrack != nil { state.tab = 3 }
+            if let destination = state.compactContent.destination {
+                state.tab = preferences.safeSelection(destination).rawValue
+                if state.compactContent == .localSignal { state.signalPage = 1 }
+                if state.compactContent == .buildWatch { state.signalPage = 0 }
+            }
             state.open?()
         } label: {
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     Group {
                         if state.showsCompactAgents {
-                            CompactAgentsLeading(monitor: agents, reduceMotion: state.reduceMotion, isVisible: !state.expanded)
+                            CompactAgentsLeading(monitor: agents, attention: compactAttention, reduceMotion: state.reduceMotion, isVisible: !state.expanded)
+                        } else if state.compactContent == .buildWatch {
+                            CompactBuildLeading(builds: builds, isVisible: !state.expanded, reduceMotion: state.reduceMotion)
                         } else if let track = compactTrack {
                             CompactMusicArtwork(track: track, isVisible: !state.expanded,
                                                 reduceMotion: state.reduceMotion, height: state.notchHeight)
@@ -156,7 +172,9 @@ struct NotchRootView: View {
                     Color.clear.frame(width: state.notchWidth)
                     Group {
                         if state.showsCompactAgents {
-                            CompactAgentsTrailing(monitor: agents)
+                            CompactAgentsTrailing(monitor: agents, attention: compactAttention)
+                        } else if state.compactContent == .buildWatch {
+                            CompactBuildTrailing(builds: builds)
                         } else if let track = compactTrack {
                             CompactMusicDetails(track: track, isVisible: !state.expanded,
                                                 reduceMotion: state.reduceMotion, height: state.notchHeight)
@@ -172,7 +190,7 @@ struct NotchRootView: View {
                 }
                 .frame(height: state.notchHeight)
                 GeometryReader { proxy in
-                    if store.timerState.isRunning || store.timerState.didFinish {
+                    if state.compactContent == .focus {
                         Capsule().fill(Ink.primary)
                             .frame(width: max(2, proxy.size.width * timerProgress), height: 2)
                     }
@@ -195,8 +213,13 @@ struct NotchRootView: View {
     var compactTrack: SpotifySnapshot? {
         !state.showsCompactAgents && state.showsCompactMusic && spotify.status == .connected ? spotify.snapshot : nil
     }
+    var compactAttention: [AgentSession] {
+        AgentAttentionPolicy.compactAttention(from: agents.visibleSessions, visibleTabs: preferences.visibleTabs,
+            quietFocusEnabled: preferences.quietFocusEnabled, focusActive: store.timerState.isRunning)
+    }
     var compactLabel: String {
-        if state.showsCompactAgents { return "Open Agents. \(agents.workingCount) working, \(agents.needsYouCount) need your attention." }
+        if state.compactContent == .buildWatch { return "Open Build Watch. \(builds.compactRun?.statusText ?? "GitHub Actions")" }
+        if state.showsCompactAgents { return "Open Agents. \(agents.workingCount) working, \(compactAttention.count) need your attention." }
         guard let track = compactTrack else { return "Open Broschy. \(compactText)" }
         return "\(track.isPlaying ? "Playing" : "Paused"): \(track.title) by \(track.artist). Open Music."
     }
@@ -208,31 +231,25 @@ struct NotchRootView: View {
         return job
     }
     var compactSymbol: String {
-        if let job = recentResult { return job.status == .succeeded ? "checkmark.circle.fill" : "exclamationmark.circle.fill" }
-        if runningJob != nil { return "terminal" }
-        if store.timerState.didFinish { return "checkmark.circle.fill" }
-        if store.timerState.hasStarted && store.timerState.remainingSeconds > 0 { return "timer" }
-        if spotify.status == .connected && spotify.snapshot?.isPlaying == true { return "waveform" }
-        if let job = store.jobs.first { return job.status == .succeeded ? "checkmark.circle" : "exclamationmark.circle" }
-        return "circle.hexagongrid.fill"
+        switch state.compactContent {
+        case .focus: return store.timerState.didFinish ? "checkmark.circle.fill" : preferences.quietFocusEnabled && store.timerState.isRunning ? "moon.fill" : "timer"
+        case .localSignal: return recentResult.map { $0.status == .succeeded ? "checkmark.circle.fill" : "exclamationmark.circle.fill" } ?? "terminal"
+        default: return "circle.hexagongrid.fill"
+        }
     }
     var compactText: String {
-        if let job = recentResult { return job.status == .succeeded ? "OK" : "Check" }
-        if runningJob != nil { return "Running" }
-        if store.timerState.didFinish { return "Done" }
-        if store.timerState.hasStarted && store.timerState.remainingSeconds > 0 { return clockString(store.timerState.remainingSeconds) }
-        if spotify.status == .connected && spotify.snapshot?.isPlaying == true { return "Music" }
-        if let job = store.jobs.first { return job.status == .succeeded ? "OK" : "Check" }
-        return "Broschy"
+        switch state.compactContent {
+        case .focus: return store.timerState.didFinish ? "Done" : clockString(store.timerState.remainingSeconds)
+        case .localSignal: return recentResult.map { $0.status == .succeeded ? "OK" : "Check" } ?? "Running"
+        default: return "Broschy"
+        }
     }
     var compactColor: Color {
-        if let job = recentResult { return job.status == .succeeded ? Ink.success : Ink.failure }
-        if runningJob != nil || (store.timerState.hasStarted && store.timerState.remainingSeconds > 0) { return Ink.primary }
-        if store.timerState.didFinish { return Ink.success }
-        if spotify.status == .connected && spotify.snapshot?.isPlaying == true { return Ink.success }
-        if store.jobs.first?.status == .succeeded { return Ink.success }
-        if store.jobs.first?.status == .failed { return Ink.failure }
-        return Ink.text
+        switch state.compactContent {
+        case .focus: return store.timerState.didFinish ? Ink.success : Ink.primary
+        case .localSignal: return recentResult.map { $0.status == .succeeded ? Ink.success : Ink.failure } ?? Ink.primary
+        default: return Ink.text
+        }
     }
     var timerProgress: Double {
         guard store.timerState.totalSeconds > 0 else { return 0 }
@@ -245,17 +262,17 @@ struct ExpandedContent: View {
     @ObservedObject var state: PanelState
     @ObservedObject var spotify: SpotifyController
     @ObservedObject var agents: AgentMonitor
+    @ObservedObject var preferences: PanelPreferences
+    @ObservedObject var builds: BuildWatchController
     @Environment(\.flowReduceMotion) var reduceMotion
     @Namespace private var tabSelection
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 3) {
-                tab("Agents", symbol: "circle.dotted", index: 4)
-                tab("Focus", symbol: "scope", index: 0)
-                tab("Music", symbol: "music.note", index: 3)
-                tab("Signals", symbol: "terminal", index: 1)
-                tab("Later", symbol: "text.alignleft", index: 2)
+                ForEach(preferences.orderedVisibleTabs) { item in
+                    tab(item.displayTitle, symbol: item.systemSymbol, index: item.rawValue)
+                }
             }
             .padding(4)
             .modifier(ControlSurface(radius: 14))
@@ -263,11 +280,11 @@ struct ExpandedContent: View {
             .padding(.horizontal, 20)
             Group {
                 switch state.tab {
-                case 1: SignalsView(store: store)
+                case 1: SignalsHubView(store: store, state: state, builds: builds)
                 case 2: LaterView(store: store)
                 case 3: MusicView(spotify: spotify)
                 case 4: AgentsView(monitor: agents, state: state)
-                default: FocusView(store: store, state: state)
+                default: FocusView(store: store, state: state, preferences: preferences)
                 }
             }
             .id(state.tab)
@@ -283,7 +300,7 @@ struct ExpandedContent: View {
                         .help(store.storageError ?? "")
                 } else {
                     Image(systemName: "lock.shield").font(.system(size: 9))
-                    Text(state.tab == 3 ? "Spotify on this Mac" : state.tab == 4 ? "Local events · last 24 hours" : "Stored locally")
+                    Text(state.tab == 3 ? "Spotify on this Mac" : state.tab == 4 ? "Local events · last 24 hours" : state.tab == 1 && state.signalPage == 0 ? "GitHub Actions · read only" : "Stored locally")
                 }
                 Spacer()
                 HStack(spacing: 5) {
@@ -305,7 +322,7 @@ struct ExpandedContent: View {
             HStack(spacing: 4) {
                 Image(systemName: symbol).font(.system(size: 10))
                 Text(title).font(.system(size: 11, weight: .medium)).lineLimit(1)
-                if (index == 1 && store.jobs.contains(where: { $0.status == .running })) || (index == 4 && agents.needsYouCount > 0) {
+                if (index == 1 && (builds.activeCount > 0 || store.jobs.contains(where: { $0.status == .running }))) || (index == 4 && agents.needsYouCount > 0) {
                     Circle().fill(Ink.primary).frame(width: 4, height: 4)
                 }
             }
@@ -334,6 +351,7 @@ struct ExpandedContent: View {
 struct FocusView: View {
     @ObservedObject var store: FlowStore
     @ObservedObject var state: PanelState
+    @ObservedObject var preferences: PanelPreferences
     @FocusState private var editing: Bool
     @Namespace private var durationSelection
     @Environment(\.flowReduceMotion) var reduceMotion
@@ -436,7 +454,7 @@ struct FocusView: View {
         return min(1, max(0, 1 - Double(store.timerState.remainingSeconds) / Double(store.timerState.totalSeconds)))
     }
     var time: String { clockString(active || store.timerState.didFinish ? store.timerState.remainingSeconds : state.selectedMinutes * 60) }
-    var subtitle: String { store.timerState.didFinish ? "Session complete. Take a breather." : (store.timerState.isRunning ? "Focus in progress" : (active ? "Timer paused" : "One thing at a time.")) }
+    var subtitle: String { store.timerState.didFinish ? "Session complete. Take a breather." : (store.timerState.isRunning ? (preferences.quietFocusEnabled ? "Quiet Focus · fewer interruptions" : "Focus in progress") : (active ? "Timer paused" : "One thing at a time.")) }
     var buttonTitle: String { store.timerState.isRunning ? "Pause" : (active ? "Resume" : "Start focus") }
 }
 
@@ -484,7 +502,7 @@ struct SignalsView: View {
                 }
             }
         }
-        .padding(.top, 20).padding(.bottom, 12)
+        .padding(.top, 8).padding(.bottom, 8)
     }
 
     func copyExample() {

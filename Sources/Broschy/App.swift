@@ -13,14 +13,18 @@ final class PanelState: ObservableObject {
     @Published var reduceMotion = false
     @Published var reduceTransparency = false
     @Published var pinned = false
-    @Published var hasPresentedPopover = false
+    @Published var hasAgentPopover = false
+    @Published var showsSettings = false
+    var hasPresentedPopover: Bool { hasAgentPopover || showsSettings }
     @Published var tab = 0
+    @Published var signalPage = 0
     @Published var notchWidth: CGFloat = 180
     @Published var notchHeight: CGFloat = 32
     @Published var panelWidth: CGFloat = 448
-    @Published var showsCompactMusic = false
-    @Published var showsCompactAgents = false
-    var compactWidth: CGFloat { min(panelWidth, notchWidth + ((showsCompactMusic || showsCompactAgents) ? 264 : 128)) }
+    @Published var compactContent = CompactContent.idle
+    var showsCompactMusic: Bool { compactContent == .music }
+    var showsCompactAgents: Bool { compactContent == .agents }
+    var compactWidth: CGFloat { min(panelWidth, notchWidth + (compactContent.usesWideWings ? 264 : 128)) }
     @Published var shortcutAvailable = false
     @Published var selectedMinutes = 25
     var open: (() -> Void)?
@@ -46,6 +50,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let state = PanelState()
     let spotify = SpotifyController()
     let agents = AgentMonitor()
+    let preferences = PanelPreferences()
+    let builds = BuildWatchController()
     var panel: NotchPanel!
     var statusItem: NSStatusItem!
     var observers: [NSObjectProtocol] = []
@@ -54,8 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var transitionWork: DispatchWorkItem?
     var transitionGeneration: UInt = 0
     var wantsExpanded = false
-    var pendingCompactMusic = false
-    var pendingCompactAgents = false
+    var pendingCompactContent = CompactContent.idle
     var accessibilityObserver: NSObjectProtocol?
     var hotKey: EventHotKeyRef?
     var hotKeyHandler: EventHandlerRef?
@@ -86,7 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         }
-        panel.contentView = InteractiveHostingView(rootView: NotchRootView(store: store, state: state, spotify: spotify, agents: agents))
+        panel.contentView = InteractiveHostingView(rootView: NotchRootView(store: store, state: state, spotify: spotify, agents: agents, preferences: preferences, builds: builds))
         state.open = { [weak self] in self?.expand(focus: true) }
         state.close = { [weak self] in self?.collapse() }
         state.hover = { [weak self] inside in self?.hover(inside) }
@@ -94,28 +99,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.selectedMinutes = store.timerState.totalSeconds / 60
         if CommandLine.arguments.contains("--music") { state.tab = 3 }
         if CommandLine.arguments.contains("--agents") { state.tab = 4 }
+        state.tab = preferences.safeSelection(PanelTab(rawValue: state.tab)).rawValue
         registerShortcut()
         updateScreen()
         panel.orderFrontRegardless()
-        Publishers.CombineLatest4(spotify.$status, spotify.$snapshot, store.$timerState, store.$jobs)
-            .combineLatest(agents.$sessions)
+        // Read the settled models on the next main-queue turn: objectWillChange
+        // fires before @Published has assigned its new value.
+        Publishers.MergeMany([spotify.objectWillChange.eraseToAnyPublisher(),
+                              store.objectWillChange.eraseToAnyPublisher(),
+                              agents.objectWillChange.eraseToAnyPublisher(),
+                              preferences.objectWillChange.eraseToAnyPublisher(),
+                              builds.objectWillChange.eraseToAnyPublisher()])
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] values, sessions in
-                guard let self else { return }
-                let (status, track, timer, jobs) = values
-                let recentResult = jobs.contains { job in
-                    guard let finished = job.finishedAt else { return false }
-                    return Date().timeIntervalSince(finished) < 12
-                }
-                let focusOrJob = timer.didFinish || (timer.hasStarted && timer.remainingSeconds > 0)
-                    || jobs.contains(where: { $0.status == .running }) || recentResult
-                let visible = sessions.filter { $0.updatedAt > Date().addingTimeInterval(-86400) && $0.effectiveStatus() != .closed }
-                let agentActivity = visible.contains(where: { $0.needsAttention() })
-                    || (!focusOrJob && visible.contains(where: { $0.effectiveStatus() == .working }))
-                let music = !agentActivity && !focusOrJob && status == .connected && track?.title.isEmpty == false
-                self.updateCompactActivity(music: music, agents: agentActivity)
-            }
+            .sink { [weak self] in self?.refreshCompactActivity() }
             .store(in: &subscriptions)
+        refreshCompactActivity()
 
         accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refreshAccessibilityOptions() }
@@ -244,6 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func collapse() {
         hoverWork?.cancel()
+        state.showsSettings = false
         guard wantsExpanded else { return }
         wantsExpanded = false
         transitionWork?.cancel()
@@ -272,8 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !wantsExpanded, transitionGeneration == generation else { return }
         transitionWork = nil
         withoutAnimation {
-            state.showsCompactMusic = pendingCompactMusic
-            state.showsCompactAgents = pendingCompactAgents
+            state.compactContent = pendingCompactContent
             state.canvasExpanded = false
         }
         // Ordering out releases AppKit/window-server focus correctly; doing this
@@ -283,16 +281,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderFrontRegardless()
     }
 
-    func updateCompactActivity(music: Bool, agents: Bool) {
-        pendingCompactMusic = music
-        pendingCompactAgents = agents
+    func refreshCompactActivity() {
+        let safeTab = preferences.safeSelection(PanelTab(rawValue: state.tab)).rawValue
+        if state.tab != safeTab { state.tab = safeTab }
+        let now = Date()
+        let timer = store.timerState
+        let attention = AgentAttentionPolicy.compactAttention(from: agents.visibleSessions,
+            visibleTabs: preferences.visibleTabs, quietFocusEnabled: preferences.quietFocusEnabled,
+            focusActive: timer.isRunning, now: now)
+        let localActivity = store.jobs.contains { job in
+            job.status == .running || job.finishedAt.map { (0..<12).contains(now.timeIntervalSince($0)) } == true
+        }
+        let recentBuild = builds.isLive && builds.recentCompletion.map {
+            (0..<12).contains(now.timeIntervalSince($0.observedAt))
+        } == true
+        let content = CompactContent.choose(visibleTabs: preferences.visibleTabs,
+            quietFocusRunning: preferences.quietFocusEnabled && timer.isRunning,
+            agentAttention: !attention.isEmpty, workingAgents: agents.workingCount > 0,
+            focusActive: timer.didFinish || (timer.hasStarted && timer.remainingSeconds > 0),
+            localActivity: localActivity, recentBuild: recentBuild, activeBuild: builds.activeCount > 0,
+            musicAvailable: spotify.status == .connected && spotify.snapshot?.title.isEmpty == false)
+        updateCompactActivity(content)
+    }
+
+    func updateCompactActivity(_ content: CompactContent) {
+        pendingCompactContent = content
         // Keep the closing surface stable; apply new activity when it settles.
         guard wantsExpanded || !state.canvasExpanded else { return }
-        guard state.showsCompactMusic != music || state.showsCompactAgents != agents else { return }
-        withoutAnimation {
-            state.showsCompactMusic = music
-            state.showsCompactAgents = agents
-        }
+        guard state.compactContent != content else { return }
+        withoutAnimation { state.compactContent = content }
         position()
     }
 
@@ -315,6 +332,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu(title: "Broschy")
         let terminate = NSMenuItem(title: "Quit Broschy", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settings.target = self
+        appMenu.addItem(settings)
+        appMenu.addItem(.separator())
         appMenu.addItem(terminate)
         appMenuItem.submenu = appMenu
         main.addItem(appMenuItem)
@@ -332,6 +353,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let show = NSMenuItem(title: "Show / Hide Panel", action: #selector(togglePanel), keyEquivalent: "")
         show.target = self
         menu.addItem(show)
+        let customize = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: "")
+        customize.target = self
+        menu.addItem(customize)
         menu.addItem(.separator())
         let folder = NSMenuItem(title: "Open Broschy Data", action: #selector(showData), keyEquivalent: "")
         folder.target = self
@@ -345,6 +369,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func togglePanel() {
         if wantsExpanded { collapse() } else { expand(focus: true) }
+    }
+    @objc func showSettings() {
+        expand(focus: true)
+        state.showsSettings = true
     }
     @objc func showData() {
         guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }

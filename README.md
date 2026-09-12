@@ -5,7 +5,7 @@
 <h1 align="center">Broschy</h1>
 
 <p align="center"><strong>A little more life around your notch.</strong><br>
-Agents, focus, music, command results, and quick notes — one glance away.</p>
+Agents, focus, music, builds, and quick notes — one glance away.</p>
 
 <p align="center">
   <a href="https://github.com/SculptTechProject/Broschy/actions/workflows/ci.yml"><img src="https://github.com/SculptTechProject/Broschy/actions/workflows/ci.yml/badge.svg" alt="Build and test"></a>
@@ -14,7 +14,7 @@ Agents, focus, music, command results, and quick notes — one glance away.</p>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-5eaaa1" alt="MIT license"></a>
 </p>
 
-<p align="center"><a href="#get-started">Get started</a> · <a href="#agents">Agents</a> · <a href="#spotify">Spotify</a> · <a href="#terminal-signals">Terminal signals</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
+<p align="center"><a href="#get-started">Get started</a> · <a href="#agents">Agents</a> · <a href="#spotify">Spotify</a> · <a href="#build-watch">Build Watch</a> · <a href="#settings">Settings</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
 
 Broschy is a small, native macOS companion that lives around your MacBook's notch. Hover to open it, take care of something, and get back to your work. A translucent compact strip keeps the essentials visible without opening a full window.
 
@@ -35,7 +35,7 @@ Broschy is a small, native macOS companion that lives around your MacBook's notc
 | **Agents** | Monitor local Codex, Claude Code, and OpenCode sessions. See who is working, waiting for you, or ready for review. |
 | **Focus** | Keep one task in view. Start a 25, 50, or 90-minute session, pause it, and pick up where you left off. The timer accounts for sleep. |
 | **Music** | See the current Spotify track and artwork. Play, pause, skip, seek, and adjust Spotify's volume. The compact view keeps the title, artist, elapsed time, and animated playback bars nearby. |
-| **Signals** | Run a build or test through the bundled CLI and see when it finishes. Success, failure, and cancellation appear in the panel. |
+| **Signals** | Watch GitHub Actions for a repository or pull request with Build Watch, or track local builds and tests through the bundled CLI in Commands. |
 | **Later** | Capture a thought or your next step in a quick note that saves automatically. |
 
 ### Made for the edge of your screen
@@ -43,12 +43,13 @@ Broschy is a small, native macOS companion that lives around your MacBook's notc
 - **Liquid Glass, expanded and compact.** Native glass on macOS 26, with a standard macOS material on earlier versions.
 - **Light and Dark, automatically.** Text, accents, and surfaces follow the system appearance, including Auto.
 - **Motion with a purpose.** Smooth open/close transitions and small playback indicators; Reduce Motion and Reduce Transparency are respected.
-- **One place to look.** Agent attention comes first; active focus sessions, recent command results, and working agents also take priority over music in the compact view.
+- **Your layout.** Choose which tabs appear, including which modules can use the compact notch.
+- **Quiet Focus.** Keep a running focus session in view while responses and build results remain available in the panel. Active agent questions and permission requests can still interrupt.
 - **Native and small.** SwiftUI, AppKit, a bundled CLI, and no third-party Swift dependencies. English throughout.
 
 ## Get started
 
-**Current version: 0.7.1.** Broschy is an early, source-first release. Build it locally with **Xcode 26 or later** and its macOS SDK. The app's deployment target is **macOS 14**; hands-on validation has been on macOS 26 and Apple Silicon. The build produces an app for your Mac's architecture.
+**Current version: 0.8.0.** Broschy is an early, source-first release. Build it locally with **Xcode 26 or later** and its macOS SDK. The app's deployment target is **macOS 14**; hands-on validation has been on macOS 26 and Apple Silicon. The build produces an app for your Mac's architecture.
 
 ```sh
 git clone https://github.com/SculptTechProject/Broschy.git
@@ -66,10 +67,19 @@ The build script assembles `build/Broschy.app` and signs it locally with an ad h
 | Open the panel | Hover over the notch or click the compact strip |
 | Toggle the panel | **Control + Option + N**, or the menu bar icon |
 | Keep it open | Click the pin |
+| Settings | The header gear, **Settings…** in the menu bar menu, or **Command + ,** |
 | Hide it | **Esc** or the chevron in the panel |
 | Quit Broschy | **⋯ → Quit Broschy**, the menu bar menu, or **Command + Q** while the panel has focus |
 
 Hiding the panel keeps Broschy running. To reopen it after quitting, launch `Broschy.app`. Broschy has no Dock icon and does not automatically start at login. On a screen without a notch, it appears at the center of the top edge.
+
+## Settings
+
+Open **Settings…** to choose your visible tabs and turn **Quiet Focus** on or off. All five tabs are visible by default. Hiding a module also removes its compact indicator; its timer, playback, monitoring, or other background work continues. At least one tab stays visible, and hiding the selected tab moves the panel to a visible one.
+
+Quiet Focus is **off by default** and applies only while the countdown is running. It holds agent responses, reviewable errors, and command or workflow results out of the compact notch. Active agent questions and permission requests can still interrupt. Responses and errors remain in the full **Agents → Needs you** queue. Pausing or finishing the timer restores normal compact priority.
+
+These preferences affect Broschy's presentation. They do not change the macOS Focus mode or notifications from other apps. Resetting them restores the default layout and turns Quiet Focus off; connections, notes, timers, and history are retained.
 
 ## Agents
 
@@ -93,9 +103,23 @@ The connection uses local Apple Events. **⋯ → Disconnect Spotify** stops mon
 
 Playback bars indicate whether music is playing; they do not analyze audio or use the microphone. Spotify volume is separate from system volume. Browser playback, music search, and choosing a Spotify Connect device are not supported.
 
+## Build Watch
+
+<p align="center"><img src="docs/assets/build-watch-dark.png" alt="Build Watch with sample running, failed, and passed GitHub Actions workflows" width="480"><br><sub>Sample workflow runs in Dark appearance.</sub></p>
+
+In **Signals → Build Watch**, connect one GitHub.com repository or pull request:
+
+1. Install [GitHub CLI](https://cli.github.com/) (`gh`) and sign in with `gh auth login` if needed.
+2. Enter `owner/repository`, a repository URL, or a pull request URL.
+3. Leave the branch blank to use the repository's default branch, or enter a branch name. A pull request follows its current head commit.
+
+Broschy uses your existing GitHub CLI access and checks up to ten recent workflow runs about every 30 seconds. Failed requests retry less often. A workflow observed active and then completed can show its result in the notch for 12 seconds; existing completed runs on first connection are silent, and repeated results are deduplicated. Runs that finish entirely between polls appear in the list but do not trigger a compact result. Compact visibility and Quiet Focus still apply.
+
+Open a workflow in GitHub to inspect it. Build Watch only reads status: it does not download workflow logs, rerun jobs, cancel workflows, or merge pull requests. GitHub Enterprise hosts and watching several targets at once are outside this version. Disconnect to stop polling.
+
 ## Terminal signals
 
-From the repository directory:
+The **Signals → Commands** subtab keeps the local CLI workflow. From the repository directory:
 
 ```sh
 # Run a command and show its result in Broschy.
@@ -108,13 +132,15 @@ From the repository directory:
 ./build/Broschy.app/Contents/MacOS/broschy-cli notify --title "Ready to review" --status succeeded
 ```
 
-You can also use **Signals → Copy command** for an example with the correct path to your copy of the app. The CLI forwards the command's input/output and exit status. Arguments are executed directly; pass a shell explicitly if you need a pipeline.
+You can also use **Signals → Commands → Copy command** for an example with the correct path to your copy of the app. The CLI forwards the command's input/output and exit status. Arguments are executed directly; pass a shell explicitly if you need a pipeline.
 
-Broschy sees commands you run through its CLI and results you explicitly send. It does not inspect other terminal sessions, IDEs, or cloud CI services. Control + C records cancellation; a forced kill or shutdown can leave a command marked Running. Cancellation is forwarded to the direct child process.
+Commands shows work run through Broschy’s CLI and results you explicitly send. It does not inspect other terminal sessions or IDEs; GitHub workflow monitoring is handled separately by Build Watch. Control + C records cancellation; a forced kill or shutdown can leave a command marked Running. Cancellation is forwarded to the direct child process.
 
-## Your data stays on your Mac
+## Local storage and connections
 
 The task, timer, note, and command history are stored locally. Broschy has no account, analytics, or cloud sync. Agent snapshots contain session and project identifiers, status, generic activity labels, and timestamps; prompts and tool contents are not saved. Integration setup retains local configuration backups. Command records contain a label, working directory, status, timestamps, and an exit code when available; command arguments and output are not saved. Album artwork is fetched over HTTPS from URLs returned by Spotify. No listening history or Spotify tokens are stored.
+
+Build Watch is opt-in and contacts GitHub.com through `gh`, using the credentials GitHub CLI already manages. Broschy does not request, extract, or save GitHub tokens. The selected target, enabled state, and a bounded set of completion identifiers are saved in local preferences; fetched workflow metadata stays in memory. Full CI logs are not downloaded or stored. Layout and Quiet Focus preferences are also stored locally.
 
 For compatibility with earlier installations, the storage folder remains:
 
@@ -130,11 +156,11 @@ Use **Open Broschy Data** from the menu bar to find it. The legacy bundle identi
 ## Development
 
 ```sh
-bash test.sh   # Isolated core, agent bridge, installer, and mocked Spotify checks
+bash test.sh   # Isolated core, agents, preferences, priority, and mocked integration checks
 bash build.sh  # Release app bundle, icon, and local signature
 ```
 
-Tests use temporary data and mocked Spotify responses. They do not control your player. UI appearance, physical notch placement, and macOS Automation prompts still need manual checks. See [development notes](docs/DEVELOPMENT.md), [design notes](DESIGN.md), and [contributing](CONTRIBUTING.md).
+Tests use isolated data and mocked Spotify and Build Watch responses. They cover saved layout preferences, Quiet Focus, and compact priority without controlling your player or changing GitHub workflows. UI appearance, physical notch placement, and macOS Automation prompts still need manual checks. See [development notes](docs/DEVELOPMENT.md), [design notes](DESIGN.md), and [contributing](CONTRIBUTING.md).
 
 Multi-display setups, Stage Manager, full-screen apps, and an auto-hidden menu bar need broader device testing. These are the main areas where feedback is useful.
 
