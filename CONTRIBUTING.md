@@ -19,3 +19,5 @@ Run `bash test.sh` and `bash build.sh` before opening a pull request. Add a regr
 Spotify's automated tests use mocked responses. Do not add tests that launch a real player, request system permissions, or depend on a contributor's account.
 
 Do not commit build output, local state, tokens, signing certificates, or personal screenshots. The existing bundle identifier and storage path are intentional compatibility contracts; changes to either need a migration plan.
+
+Release builds assemble a fresh bundle, remove source-path debug records before signing, and check the public payload with `scripts/check-bundle-privacy.py`. Keep that gate passing; review documentation, screenshot metadata, and commit history separately before publishing.
