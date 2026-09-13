@@ -17,6 +17,7 @@ final class BuildWatchController: ObservableObject {
     @Published private(set) var recentCompletion: BuildWatchCompletion?
 
     private let defaults: UserDefaults
+    private let storageNamespace: String?
     private let perform: (BuildWatchRequest, BuildWatchCancellation) -> BuildWatchOutcome
     private let clock: () -> Date
     private let queue = DispatchQueue(label: "app.broschy.build-watch", qos: .utility)
@@ -31,32 +32,57 @@ final class BuildWatchController: ObservableObject {
     private var observedActive = Set<String>()
     private var seenCompletions: [String]
 
-    init(defaults: UserDefaults = .standard, startTicker: Bool = true, clock: @escaping () -> Date = Date.init,
+    init(defaults: UserDefaults = .standard, storageNamespace: String? = nil,
+         startTicker: Bool = true, clock: @escaping () -> Date = Date.init,
          perform: @escaping (BuildWatchRequest, BuildWatchCancellation) -> BuildWatchOutcome = BuildWatchTransport.fetch) {
         self.defaults = defaults
+        self.storageNamespace = storageNamespace
         self.clock = clock
         self.perform = perform
-        if let data = defaults.data(forKey: "buildWatchTarget"), data.count <= 2_048,
+        if let data = defaults.data(forKey: Self.storageKey("buildWatchTarget", namespace: storageNamespace)), data.count <= 2_048,
            let stored = try? JSONDecoder().decode(BuildWatchTarget.self, from: data), stored.isValid {
             target = stored
-            isEnabled = defaults.bool(forKey: "buildWatchEnabled")
+            isEnabled = defaults.bool(forKey: Self.storageKey("buildWatchEnabled", namespace: storageNamespace))
         }
-        seenCompletions = (defaults.stringArray(forKey: "buildWatchSeenCompletions") ?? [])
+        seenCompletions = (defaults.stringArray(forKey: Self.storageKey("buildWatchSeenCompletions", namespace: storageNamespace)) ?? [])
             .filter { $0.range(of: "^[a-f0-9]{64}:[0-9]+:[0-9]+$", options: .regularExpression) != nil }.suffix(30).map { $0 }
-        if startTicker {
-            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.tick() }
-            }
-            RunLoop.main.add(timer, forMode: .common)
-            ticker = timer
-            if isEnabled { refresh() }
-        }
+        if startTicker { startMonitoring() }
     }
 
     deinit { ticker?.invalidate(); cancellation.invalidate() }
 
     var activeCount: Int { isLive ? runs.filter(\.isActive).count : 0 }
     var hasCompactActivity: Bool { activeCount > 0 || recentCompletion != nil }
+
+    func startMonitoring() {
+        guard ticker == nil else { return }
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        ticker = timer
+        if isEnabled { refresh() }
+    }
+
+    static func storageKey(_ key: String, namespace: String?) -> String {
+        namespace.map { $0 + "." + key } ?? key
+    }
+
+    /// Copy only validated configuration and bounded completion keys. The nil
+    /// namespace keeps existing single-watch callers and their preferences intact.
+    func copySavedConfiguration(to namespace: String) {
+        if let target {
+            defaults.set(try? JSONEncoder().encode(target), forKey: Self.storageKey("buildWatchTarget", namespace: namespace))
+        }
+        defaults.set(isEnabled, forKey: Self.storageKey("buildWatchEnabled", namespace: namespace))
+        defaults.set(seenCompletions, forKey: Self.storageKey("buildWatchSeenCompletions", namespace: namespace))
+    }
+
+    func removeSavedConfiguration() {
+        for key in ["buildWatchTarget", "buildWatchEnabled", "buildWatchSeenCompletions"] {
+            defaults.removeObject(forKey: Self.storageKey(key, namespace: storageNamespace))
+        }
+    }
 
     @discardableResult
     func connect(_ input: String, branch: String = "") -> Bool {
@@ -72,8 +98,8 @@ final class BuildWatchController: ObservableObject {
         errorMessage = nil
         runs = []; isLive = false; lastUpdatedAt = nil; resolvedBranch = nil; recentCompletion = nil
         baselineScope = nil; observedActive = []; failureCount = 0
-        defaults.set(try? JSONEncoder().encode(parsed), forKey: "buildWatchTarget")
-        defaults.set(true, forKey: "buildWatchEnabled")
+        defaults.set(try? JSONEncoder().encode(parsed), forKey: Self.storageKey("buildWatchTarget", namespace: storageNamespace))
+        defaults.set(true, forKey: Self.storageKey("buildWatchEnabled", namespace: storageNamespace))
         refresh()
         return true
     }
@@ -84,7 +110,7 @@ final class BuildWatchController: ObservableObject {
         runs = []; recentCompletion = nil; lastUpdatedAt = nil; resolvedBranch = nil
         errorMessage = nil; inputError = nil; pendingRefresh = false
         baselineScope = nil; observedActive = []
-        defaults.set(false, forKey: "buildWatchEnabled")
+        defaults.set(false, forKey: Self.storageKey("buildWatchEnabled", namespace: storageNamespace))
     }
 
     func tick(now: Date? = nil) {
@@ -135,7 +161,7 @@ final class BuildWatchController: ObservableObject {
                 if let run = completed.first { recentCompletion = .init(run: run, observedAt: now) }
                 for run in completed { seenCompletions.append(target.identity + ":" + run.completionKey) }
                 seenCompletions = Array(seenCompletions.suffix(30))
-                defaults.set(seenCompletions, forKey: "buildWatchSeenCompletions")
+                defaults.set(seenCompletions, forKey: Self.storageKey("buildWatchSeenCompletions", namespace: storageNamespace))
             } else {
                 baselineScope = newScope
                 recentCompletion = nil

@@ -48,14 +48,16 @@ struct CompactMusicArtwork: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Ink.text.opacity(0.16))
-                        Capsule().fill(Ink.text.opacity(0.76))
-                            .frame(width: geometry.size.width * track.compactProgress)
+                if height >= 28 {
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Ink.text.opacity(0.16))
+                            Capsule().fill(Ink.text.opacity(0.76))
+                                .frame(width: geometry.size.width * track.compactProgress)
+                        }
                     }
+                    .frame(height: 2)
                 }
-                .frame(height: 2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -79,9 +81,11 @@ struct CompactMusicDetails: View {
                     Text(track.title.isEmpty ? "Spotify" : track.title)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Ink.text)
-                    Text(track.artist.isEmpty ? (track.isPlaying ? "Playing" : "Paused") : track.artist)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(Ink.muted)
+                    if height >= 28 {
+                        Text(track.artist.isEmpty ? (track.isPlaying ? "Playing" : "Paused") : track.artist)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(Ink.muted)
+                    }
                 }
                 .lineLimit(1)
                 .truncationMode(.tail)

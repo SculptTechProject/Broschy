@@ -274,6 +274,7 @@ struct CompactAgentsLeading: View {
     let attention: [AgentSession]
     let reduceMotion: Bool
     let isVisible: Bool
+    var height: CGFloat = 38
     private var requests: [AgentSession] { attention.filter { $0.needsAttention() } }
     private var hasError: Bool { attention.contains { $0.attentionKind() == .error } }
     var body: some View {
@@ -283,9 +284,12 @@ struct CompactAgentsLeading: View {
                 .symbolEffect(.pulse, options: .repeating, isActive: isVisible && !reduceMotion && monitor.hasCompactActivity)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Agents").font(.system(size: 10, weight: .semibold))
-                Text("\(monitor.workingCount) working").font(.system(size: 9)).foregroundStyle(Ink.muted)
+                if height >= 28 {
+                    Text("\(monitor.workingCount) working").font(.system(size: 9)).foregroundStyle(Ink.muted)
+                }
             }
         }
+        .frame(height: height)
         .foregroundStyle(!requests.isEmpty ? Ink.primary : hasError ? Ink.failure : Ink.success)
         .accessibilityHidden(true)
     }
@@ -294,6 +298,7 @@ struct CompactAgentsLeading: View {
 struct CompactAgentsTrailing: View {
     @ObservedObject var monitor: AgentMonitor
     let attention: [AgentSession]
+    var height: CGFloat = 38
     private var requests: [AgentSession] { attention.filter { $0.needsAttention() } }
     private var errors: [AgentSession] { attention.filter { $0.attentionKind() == .error } }
     private var label: String {
@@ -306,10 +311,13 @@ struct CompactAgentsTrailing: View {
             Text(label)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(!requests.isEmpty ? Ink.primary : !errors.isEmpty ? Ink.failure : Ink.text)
-            Text(requests.first?.title ?? errors.first?.title ?? monitor.visibleSessions.first(where: { $0.effectiveStatus() == .working })?.title ?? "Agents")
-                .font(.system(size: 9)).foregroundStyle(Ink.muted)
+            if height >= 28 {
+                Text(requests.first?.title ?? errors.first?.title ?? monitor.visibleSessions.first(where: { $0.effectiveStatus() == .working })?.title ?? "Agents")
+                    .font(.system(size: 9)).foregroundStyle(Ink.muted)
+            }
         }
         .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 13)
+        .frame(height: height)
         .accessibilityHidden(true)
     }
 }

@@ -35,21 +35,21 @@ Broschy is a small, native macOS companion that lives around your MacBook's notc
 | **Agents** | Monitor local Codex, Claude Code, and OpenCode sessions. See who is working, waiting for you, or ready for review. |
 | **Focus** | Keep one task in view. Start a 25, 50, or 90-minute session, pause it, and pick up where you left off. The timer accounts for sleep. |
 | **Music** | See the current Spotify track and artwork. Play, pause, skip, seek, and adjust Spotify's volume. The compact view keeps the title, artist, elapsed time, and animated playback bars nearby. |
-| **Signals** | Watch GitHub Actions for a repository or pull request with Build Watch, or track local builds and tests through the bundled CLI in Commands. |
+| **Signals** | Watch GitHub Actions across repositories and pull requests with Build Watch, or track local builds and tests through the bundled CLI in Commands. |
 | **Later** | Capture a thought or your next step in a quick note that saves automatically. |
 
 ### Made for the edge of your screen
 
 - **Liquid Glass, expanded and compact.** Native glass on macOS 26, with a standard macOS material on earlier versions.
 - **Light and Dark, automatically.** Text, accents, and surfaces follow the system appearance, including Auto.
-- **Motion with a purpose.** Smooth open/close transitions and small playback indicators; Reduce Motion and Reduce Transparency are respected.
+- **Motion with a purpose.** The resting strip fits inside the menu bar. Hover gives it a small preview before opening; restrained springs soften opening and closing. Reduce Motion and Reduce Transparency are respected.
 - **Your layout.** Choose which tabs appear, including which modules can use the compact notch.
 - **Quiet Focus.** Keep a running focus session in view while working-agent, error, and result indicators stay out of the compact notch. Fresh agent questions and permission requests can still interrupt.
 - **Native and small.** SwiftUI, AppKit, a bundled CLI, and no third-party Swift dependencies. English throughout.
 
 ## Get started
 
-**Current version: 0.8.2.** [Download the Apple Silicon preview](https://github.com/SculptTechProject/Broschy/releases/tag/v0.8.2), or build it locally with **Xcode 26 or later** and its macOS SDK. The app's deployment target is **macOS 14**; hands-on validation has been on macOS 26 and Apple Silicon. The local build produces an app for your Mac's architecture.
+**Current version: 0.8.3.** [Download the Apple Silicon preview](https://github.com/SculptTechProject/Broschy/releases/tag/v0.8.3), or build it locally with **Xcode 26 or later** and its macOS SDK. The app's deployment target is **macOS 14**; hands-on validation has been on macOS 26 and Apple Silicon. The local build produces an app for your Mac's architecture.
 
 ```sh
 git clone https://github.com/SculptTechProject/Broschy.git
@@ -109,17 +109,19 @@ Playback bars indicate whether music is playing; they do not analyze audio or us
 
 <p align="center"><img src="docs/assets/build-watch-dark.png" alt="Build Watch with sample running, failed, and passed GitHub Actions workflows" width="480"><br><sub>Sample workflow runs in Dark appearance.</sub></p>
 
-In **Signals → Build Watch**, connect one GitHub.com repository or pull request:
+In **Signals → Build Watch**, keep a watchlist of GitHub.com repositories and pull requests:
 
 1. Install [GitHub CLI](https://cli.github.com/) (`gh`) and sign in with `gh auth login` if needed.
-2. Enter `owner/repository`, a repository URL, or a pull request URL.
+2. Choose **Add** (or **Add repository** on an empty list) and enter `owner/repository`, a repository URL, or a pull request URL.
 3. Leave the branch blank to use the repository's default branch, or enter a branch name. A pull request follows its current head commit.
 
-Broschy uses your existing GitHub CLI access and checks up to ten recent workflow runs about every 30 seconds. Failed requests retry less often. A workflow observed active and then completed can show its result in the notch for 12 seconds; existing completed runs on first connection are silent, and repeated results are deduplicated. Runs that finish entirely between polls appear in the list but do not trigger a compact result. Compact visibility and Quiet Focus still apply.
+Add more repositories to the same list, then select a row to see its workflows. Each row shows its own branch or PR and connection status. You can edit or remove a target individually, refresh one repository, or refresh the whole list. The list is saved between launches; an existing connected repository is carried over automatically.
 
-Each row shows a fixed **Updated** date and time from GitHub, not a running duration. A completed workflow appears after the next successful poll; use Refresh for an immediate check.
+Broschy uses your existing GitHub CLI access and checks up to ten recent workflow runs per target about every 30 seconds. Failed requests retry less often. A workflow observed active and then completed can show its result in the notch for 12 seconds; existing completed runs on first connection are silent, and repeated results are deduplicated. Runs that finish entirely between polls appear in the list but do not trigger a compact result. Compact visibility and Quiet Focus still apply.
 
-Open a workflow in GitHub to inspect it. Build Watch only reads status: it does not download workflow logs, rerun jobs, cancel workflows, or merge pull requests. GitHub Enterprise hosts and watching several targets at once are outside this version. Disconnect to stop polling.
+Workflow rows show a fixed **Updated** date and time from GitHub, not a running duration. Repository rows show **Checked** for their last successful refresh. A completed workflow appears after the next successful poll; use Refresh for an immediate check.
+
+Open a workflow in GitHub to inspect it. Build Watch only reads status: it does not download workflow logs, rerun jobs, cancel workflows, or merge pull requests. GitHub Enterprise hosts are not supported. Removing a target stops its polling. The notch combines live activity across the watchlist and identifies the repository for the selected build or recent result.
 
 ## Terminal signals
 
@@ -144,7 +146,7 @@ Commands shows work run through Broschy’s CLI and results you explicitly send.
 
 The task, timer, note, and command history are stored locally. Broschy has no account, analytics, or cloud sync. Agent snapshots contain session and project identifiers, status, generic activity labels, and timestamps; prompts and tool contents are not saved. Integration setup retains local configuration backups. Command records contain a label, working directory, status, timestamps, and an exit code when available; command arguments and output are not saved. Album artwork is fetched over HTTPS from URLs returned by Spotify. No listening history or Spotify tokens are stored.
 
-Build Watch is opt-in and contacts GitHub.com through `gh`, using the credentials GitHub CLI already manages. Broschy does not request, extract, or save GitHub tokens. The selected target, enabled state, and a bounded set of completion identifiers are saved in local preferences; fetched workflow metadata stays in memory. Full CI logs are not downloaded or stored. Layout and Quiet Focus preferences are also stored locally.
+Build Watch is opt-in and contacts GitHub.com through `gh`, using the credentials GitHub CLI already manages. Broschy does not request, extract, or save GitHub tokens. The watchlist, per-target enabled state, and a bounded set of completion identifiers for each target are saved in local preferences; fetched workflow metadata stays in memory. Full CI logs are not downloaded or stored. Layout and Quiet Focus preferences are also stored locally.
 
 For compatibility with earlier installations, the storage folder remains:
 

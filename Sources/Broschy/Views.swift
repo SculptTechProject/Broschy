@@ -42,7 +42,7 @@ struct NotchRootView: View {
     @ObservedObject var spotify: SpotifyController
     @ObservedObject var agents: AgentMonitor
     @ObservedObject var preferences: PanelPreferences
-    @ObservedObject var builds: BuildWatchController
+    @ObservedObject var builds: BuildWatchMonitor
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
@@ -57,35 +57,35 @@ struct NotchRootView: View {
             .allowsHitTesting(state.expanded)
             .accessibilityHidden(!state.expanded)
             compact
-                .frame(width: state.compactWidth, height: state.notchHeight + 8)
+                .frame(width: state.previewing ? state.previewWidth : state.compactWidth, height: state.compactHeight)
                 .opacity(state.expanded ? 0 : 1)
                 .allowsHitTesting(!state.expanded)
                 .accessibilityHidden(state.expanded)
         }
-        .frame(width: state.expanded ? state.panelWidth : state.compactWidth,
-               height: state.expanded ? state.notchHeight + 350 : state.notchHeight + 8, alignment: .top)
-        .clipShape(NotchShape(cornerRadius: state.expanded ? 26 : 18))
+        .frame(width: state.surfaceWidth, height: state.surfaceHeight, alignment: .top)
+        .clipShape(NotchShape(cornerRadius: surfaceRadius))
         .background(PanelMaterial(reduceTransparency: state.reduceTransparency)
-            .clipShape(NotchShape(cornerRadius: state.expanded ? 26 : 18)).allowsHitTesting(false))
+            .clipShape(NotchShape(cornerRadius: surfaceRadius)).allowsHitTesting(false))
         .modifier(PanelGlass(reduceTransparency: state.reduceTransparency,
-                            radius: state.expanded ? 26 : 18))
+                            radius: surfaceRadius))
         .overlay(alignment: .top) {
             UnevenRoundedRectangle(bottomLeadingRadius: 9, bottomTrailingRadius: 9)
                 .fill(.black)
-                .frame(width: state.notchWidth, height: state.notchHeight + 1)
+                .frame(width: state.notchWidth, height: min(state.notchHeight, state.surfaceHeight))
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
-        .contentShape(NotchShape(cornerRadius: state.expanded ? 26 : 18))
+        .contentShape(NotchShape(cornerRadius: surfaceRadius))
         .foregroundStyle(Ink.text)
         .onHover { state.hover?($0) }
         .onExitCommand { state.close?() }
-        .frame(width: state.canvasExpanded ? state.panelWidth : state.compactWidth,
-               height: state.canvasExpanded ? state.notchHeight + 350 : state.notchHeight + 8, alignment: .top)
+        .frame(width: state.canvasWidth, height: state.canvasHeight, alignment: .top)
         .environment(\.flowReduceMotion, state.reduceMotion)
         .environment(\.flowReduceTransparency, state.reduceTransparency)
         .transaction { if state.reduceMotion { $0.disablesAnimations = true } }
     }
+
+    var surfaceRadius: CGFloat { state.expanded ? 26 : state.previewing ? 16 : 14 }
 
     var expandedHeader: some View {
         HStack(spacing: 0) {
@@ -151,54 +151,52 @@ struct NotchRootView: View {
             }
             state.open?()
         } label: {
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    Group {
-                        if state.showsCompactAgents {
-                            CompactAgentsLeading(monitor: agents, attention: compactAttention, reduceMotion: state.reduceMotion, isVisible: !state.expanded)
-                        } else if state.compactContent == .buildWatch {
-                            CompactBuildLeading(builds: builds, isVisible: !state.expanded, reduceMotion: state.reduceMotion)
-                        } else if let track = compactTrack {
-                            CompactMusicArtwork(track: track, isVisible: !state.expanded,
-                                                reduceMotion: state.reduceMotion, height: state.notchHeight)
-                        } else {
-                            Image(systemName: compactSymbol)
-                                .contentTransition(.symbolEffect(.replace))
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(compactColor)
-                        }
+            HStack(spacing: 0) {
+                Group {
+                    if state.showsCompactAgents {
+                        CompactAgentsLeading(monitor: agents, attention: compactAttention, reduceMotion: state.reduceMotion, isVisible: !state.expanded, height: state.compactHeight)
+                    } else if state.compactContent == .buildWatch {
+                        CompactBuildLeading(builds: builds, isVisible: !state.expanded, reduceMotion: state.reduceMotion, height: state.compactHeight)
+                    } else if let track = compactTrack {
+                        CompactMusicArtwork(track: track, isVisible: !state.expanded,
+                                            reduceMotion: state.reduceMotion, height: state.compactHeight)
+                    } else {
+                        Image(systemName: compactSymbol)
+                            .contentTransition(.symbolEffect(.replace))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(compactColor)
                     }
-                    .frame(width: compactWingWidth)
-                    Color.clear.frame(width: state.notchWidth)
-                    Group {
-                        if state.showsCompactAgents {
-                            CompactAgentsTrailing(monitor: agents, attention: compactAttention)
-                        } else if state.compactContent == .buildWatch {
-                            CompactBuildTrailing(builds: builds)
-                        } else if let track = compactTrack {
-                            CompactMusicDetails(track: track, isVisible: !state.expanded,
-                                                reduceMotion: state.reduceMotion, height: state.notchHeight)
-                        } else {
+                }
+                .frame(width: compactWingWidth)
+                Color.clear.frame(width: state.notchWidth)
+                Group {
+                    if state.showsCompactAgents {
+                        CompactAgentsTrailing(monitor: agents, attention: compactAttention, height: state.compactHeight)
+                    } else if state.compactContent == .buildWatch {
+                        CompactBuildTrailing(builds: builds, height: state.compactHeight)
+                    } else if let track = compactTrack {
+                        CompactMusicDetails(track: track, isVisible: !state.expanded,
+                                            reduceMotion: state.reduceMotion, height: state.compactHeight)
+                    } else {
+                        VStack(spacing: 2) {
                             Text(compactText)
                                 .contentTransition(.numericText(countsDown: true))
                                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                                 .foregroundStyle(compactColor)
                                 .lineLimit(1)
+                            if state.compactContent == .focus {
+                                GeometryReader { proxy in
+                                    Capsule().fill(Ink.primary)
+                                        .frame(width: max(2, proxy.size.width * timerProgress), height: 2)
+                                }
+                                .frame(height: 2).padding(.horizontal, 16)
+                            }
                         }
                     }
-                    .frame(width: compactWingWidth)
                 }
-                .frame(height: state.notchHeight)
-                GeometryReader { proxy in
-                    if state.compactContent == .focus {
-                        Capsule().fill(Ink.primary)
-                            .frame(width: max(2, proxy.size.width * timerProgress), height: 2)
-                    }
-                }
-                .frame(height: 2)
-                .padding(.horizontal, 16)
-                Spacer(minLength: 0)
+                .frame(width: compactWingWidth)
             }
+            .frame(height: state.compactHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -209,7 +207,7 @@ struct NotchRootView: View {
               ?? "Broschy — hover or click to open")
     }
 
-    var compactWingWidth: CGFloat { max(0, (state.compactWidth - state.notchWidth) / 2) }
+    var compactWingWidth: CGFloat { max(0, ((state.previewing ? state.previewWidth : state.compactWidth) - state.notchWidth) / 2) }
     var compactTrack: SpotifySnapshot? {
         !state.showsCompactAgents && state.showsCompactMusic && spotify.status == .connected ? spotify.snapshot : nil
     }
@@ -218,7 +216,10 @@ struct NotchRootView: View {
             quietFocusEnabled: preferences.quietFocusEnabled, focusActive: store.timerState.isRunning)
     }
     var compactLabel: String {
-        if state.compactContent == .buildWatch { return "Open Build Watch. \(builds.compactRun?.statusText ?? "GitHub Actions")" }
+        if state.compactContent == .buildWatch {
+            let selected = builds.compactRepository?.controller
+            return "Open Build Watch. \(builds.activeCount) active workflows. \(selected?.target?.displayName ?? "GitHub Actions"). \(selected?.compactRun?.statusText ?? "")"
+        }
         if state.showsCompactAgents {
             let requests = compactAttention.filter { $0.needsAttention() }.count
             let errors = compactAttention.filter { $0.attentionKind() == .error }.count
@@ -267,7 +268,7 @@ struct ExpandedContent: View {
     @ObservedObject var spotify: SpotifyController
     @ObservedObject var agents: AgentMonitor
     @ObservedObject var preferences: PanelPreferences
-    @ObservedObject var builds: BuildWatchController
+    @ObservedObject var builds: BuildWatchMonitor
     @Environment(\.flowReduceMotion) var reduceMotion
     @Namespace private var tabSelection
 

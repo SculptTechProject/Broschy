@@ -6,10 +6,14 @@ import SwiftUI
 @MainActor
 final class PanelState: ObservableObject {
     static let openDuration: TimeInterval = 0.36
-    static let closeDuration: TimeInterval = 0.26
+    static let closeDuration: TimeInterval = 0.36
+    static let previewDuration: TimeInterval = 0.14
+    static let hoverDelay: TimeInterval = 0.22
 
     @Published var expanded = false
     @Published var canvasExpanded = false
+    @Published var previewing = false
+    @Published var canvasPreview = false
     @Published var reduceMotion = false
     @Published var reduceTransparency = false
     @Published var pinned = false
@@ -20,11 +24,18 @@ final class PanelState: ObservableObject {
     @Published var signalPage = 0
     @Published var notchWidth: CGFloat = 180
     @Published var notchHeight: CGFloat = 32
+    @Published var menuBarHeight: CGFloat = 32
     @Published var panelWidth: CGFloat = 448
     @Published var compactContent = CompactContent.idle
     var showsCompactMusic: Bool { compactContent == .music }
     var showsCompactAgents: Bool { compactContent == .agents }
-    var compactWidth: CGFloat { min(panelWidth, notchWidth + (compactContent.usesWideWings ? 264 : 128)) }
+    var compactWidth: CGFloat { PanelGeometry.compactWidth(notchWidth: notchWidth, panelWidth: panelWidth, wide: compactContent.usesWideWings) }
+    var previewWidth: CGFloat { PanelGeometry.previewWidth(compactWidth: compactWidth, panelWidth: panelWidth) }
+    var compactHeight: CGFloat { menuBarHeight + (previewing ? PanelGeometry.previewHeightGrowth : 0) }
+    var surfaceWidth: CGFloat { expanded ? panelWidth : previewing ? previewWidth : compactWidth }
+    var surfaceHeight: CGFloat { expanded ? notchHeight + 350 : compactHeight }
+    var canvasWidth: CGFloat { canvasExpanded ? panelWidth + PanelGeometry.animationPadding * 2 : canvasPreview ? previewWidth : compactWidth }
+    var canvasHeight: CGFloat { canvasExpanded ? notchHeight + 350 + PanelGeometry.animationPadding : menuBarHeight + (canvasPreview ? PanelGeometry.previewHeightGrowth : 0) }
     @Published var shortcutAvailable = false
     @Published var selectedMinutes = 25
     var open: (() -> Void)?
@@ -51,12 +62,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let spotify = SpotifyController()
     let agents = AgentMonitor()
     let preferences = PanelPreferences()
-    let builds = BuildWatchController()
+    let builds = BuildWatchMonitor()
     var panel: NotchPanel!
     var statusItem: NSStatusItem!
     var observers: [NSObjectProtocol] = []
     var subscriptions = Set<AnyCancellable>()
     var hoverWork: DispatchWorkItem?
+    var previewWork: DispatchWorkItem?
+    var hoverGeneration: UInt = 0
+    var pointerInside = false
+    var suppressHoverUntilExit = false
     var transitionWork: DispatchWorkItem?
     var transitionGeneration: UInt = 0
     var wantsExpanded = false
@@ -164,18 +179,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.reduceMotion = reduceMotion
             state.reduceTransparency = reduceTransparency
         }
-        guard reduceMotion, panel != nil, transitionWork != nil else { return }
+        guard reduceMotion, panel != nil else { return }
+        cancelHoverIntent()
         transitionWork?.cancel()
         transitionWork = nil
         transitionGeneration &+= 1
         if wantsExpanded {
             withoutAnimation {
+                state.previewing = false
+                state.canvasPreview = false
                 state.canvasExpanded = true
                 state.expanded = true
             }
             position()
         } else {
             finishCollapse(generation: transitionGeneration)
+            if pointerInside { hover(true) }
         }
     }
 
@@ -186,30 +205,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func updateScreen() {
+        cancelHoverIntent()
+        suppressHoverUntilExit = false
+        transitionWork?.cancel()
+        transitionWork = nil
+        transitionGeneration &+= 1
         selectedScreen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main ?? NSScreen.screens.first
         guard let screen = selectedScreen else { return }
         let left = screen.auxiliaryTopLeftArea ?? .zero
         let right = screen.auxiliaryTopRightArea ?? .zero
         let gap = right.minX - left.maxX
-        state.notchWidth = screen.safeAreaInsets.top > 0 && gap > 0 ? gap : 180
-        state.notchHeight = screen.safeAreaInsets.top > 0 ? screen.safeAreaInsets.top : 28
-        state.panelWidth = min(480, screen.frame.width - 32)
-        position()
+        withoutAnimation {
+            state.notchWidth = screen.safeAreaInsets.top > 0 && gap > 0 ? gap : 180
+            state.notchHeight = screen.safeAreaInsets.top > 0 ? screen.safeAreaInsets.top : 28
+            state.menuBarHeight = PanelGeometry.compactHeight(safeAreaTop: screen.safeAreaInsets.top,
+                                                            menuBarHeight: NSStatusBar.system.thickness)
+            state.panelWidth = min(480, screen.frame.width - 32)
+            state.previewing = false
+            state.canvasPreview = false
+            state.expanded = wantsExpanded
+            state.canvasExpanded = wantsExpanded
+        }
+        if wantsExpanded { position() }
+        else { finishCollapse(generation: transitionGeneration) }
     }
 
     func position() {
-        guard let screen = selectedScreen else { return }
-        let width = state.canvasExpanded ? state.panelWidth : state.compactWidth
-        let height = state.canvasExpanded ? state.notchHeight + 350 : state.notchHeight + 8
+        guard let frame = panelFrame(width: state.canvasWidth, height: state.canvasHeight) else { return }
+        panel.setFrame(frame, display: true)
+    }
+
+    func panelFrame(width: CGFloat, height: CGFloat) -> CGRect? {
+        guard let screen = selectedScreen else { return nil }
         let left = screen.auxiliaryTopLeftArea ?? .zero
         let right = screen.auxiliaryTopRightArea ?? .zero
         let center = screen.safeAreaInsets.top > 0 && right.minX > left.maxX
             ? (left.maxX + right.minX) / 2 : screen.frame.midX
-        panel.setFrame(NSRect(x: center - width / 2, y: screen.frame.maxY - height, width: width, height: height), display: true)
+        return PanelGeometry.frame(centerX: center, screenFrame: screen.frame, width: width, height: height)
+    }
+
+    var pointerIsOverCompactPanel: Bool {
+        panelFrame(width: state.compactWidth, height: state.menuBarHeight)?.contains(NSEvent.mouseLocation) == true
     }
 
     func expand(focus: Bool) {
-        hoverWork?.cancel()
+        cancelHoverIntent()
+        suppressHoverUntilExit = false
         guard !wantsExpanded else {
             panel.orderFrontRegardless()
             if focus { panel.makeKey() }
@@ -226,13 +267,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if focus { panel.makeKey() }
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.wantsExpanded, self.transitionGeneration == generation else { return }
-            self.transitionWork = nil
             if self.state.reduceMotion {
-                self.withoutAnimation { self.state.expanded = true }
-            } else {
-                withAnimation(.timingCurve(0.16, 1, 0.3, 1, duration: PanelState.openDuration)) {
+                self.withoutAnimation {
                     self.state.expanded = true
+                    self.state.previewing = false
+                    self.state.canvasPreview = false
                 }
+                self.transitionWork = nil
+            } else {
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.88, blendDuration: 0.08)) {
+                    self.state.expanded = true
+                    self.state.previewing = false
+                }
+                self.withoutAnimation { self.state.canvasPreview = false }
+                let settled = DispatchWorkItem { [weak self] in
+                    guard let self, self.wantsExpanded, self.transitionGeneration == generation else { return }
+                    self.transitionWork = nil
+                }
+                self.transitionWork = settled
+                DispatchQueue.main.asyncAfter(deadline: .now() + PanelState.openDuration, execute: settled)
             }
         }
         transitionWork = work
@@ -241,9 +294,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func collapse() {
-        hoverWork?.cancel()
+        cancelHoverIntent()
+        // Dismissing under the pointer must survive tracking events generated
+        // when the native window shrinks or relinquishes keyboard focus.
+        suppressHoverUntilExit = pointerIsOverCompactPanel
         state.showsSettings = false
-        guard wantsExpanded else { return }
+        guard wantsExpanded else {
+            if !state.canvasExpanded { endPreview(generation: hoverGeneration, dismissed: true) }
+            return
+        }
         wantsExpanded = false
         transitionWork?.cancel()
         transitionGeneration &+= 1
@@ -251,12 +310,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.pinned = false
         panel.makeFirstResponder(nil)
         if state.reduceMotion {
-            withoutAnimation { state.expanded = false }
+            withoutAnimation { state.expanded = false; state.previewing = false }
             finishCollapse(generation: generation)
             return
         }
-        withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: PanelState.closeDuration)) {
+        withAnimation(.spring(response: 0.26, dampingFraction: 0.88, blendDuration: 0.08)) {
             state.expanded = false
+            state.previewing = false
         }
         // Keep the canvas until the surface has closed, then stop intercepting
         // clicks in the now-empty area. A new opening invalidates this shrink.
@@ -270,10 +330,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func finishCollapse(generation: UInt) {
         guard !wantsExpanded, transitionGeneration == generation else { return }
         transitionWork = nil
+        let wasClosing = state.canvasExpanded
         withoutAnimation {
+            state.expanded = false
+            state.previewing = false
+            state.canvasPreview = false
             state.compactContent = pendingCompactContent
             state.canvasExpanded = false
         }
+        // Deferred activity can widen the resting panel under a stationary
+        // pointer. Treat that new tracking entry as part of the same dismissal.
+        if wasClosing && pointerIsOverCompactPanel { suppressHoverUntilExit = true }
         // Ordering out releases AppKit/window-server focus correctly; doing this
         // after the animation keeps keyboard-driven closing visually continuous.
         if panel.isKeyWindow { panel.orderOut(nil) }
@@ -292,7 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let localActivity = store.jobs.contains { job in
             job.status == .running || job.finishedAt.map { (0..<12).contains(now.timeIntervalSince($0)) } == true
         }
-        let recentBuild = builds.isLive && builds.recentCompletion.map {
+        let recentBuild = builds.compactRepository?.controller.recentCompletion.map {
             (0..<12).contains(now.timeIntervalSince($0.observedAt))
         } == true
         let content = CompactContent.choose(visibleTabs: preferences.visibleTabs,
@@ -307,16 +374,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func updateCompactActivity(_ content: CompactContent) {
         pendingCompactContent = content
         // Keep the closing surface stable; apply new activity when it settles.
-        guard wantsExpanded || !state.canvasExpanded else { return }
+        guard wantsExpanded || (!state.canvasExpanded && !state.canvasPreview) else { return }
         guard state.compactContent != content else { return }
         withoutAnimation { state.compactContent = content }
         position()
     }
 
-    func hover(_ inside: Bool) {
+    func cancelHoverIntent() {
         hoverWork?.cancel()
+        hoverWork = nil
+        previewWork?.cancel()
+        previewWork = nil
+        hoverGeneration &+= 1
+    }
+
+    func beginPreview(generation: UInt) {
+        guard !state.reduceMotion else { return }
+        withoutAnimation { state.canvasPreview = true }
+        position()
+        // Grow the native canvas first, then animate only the visible glass.
         let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
+            guard let self, self.hoverGeneration == generation, self.pointerInside, !self.wantsExpanded else { return }
+            self.previewWork = nil
+            withAnimation(.easeOut(duration: PanelState.previewDuration)) { self.state.previewing = true }
+        }
+        previewWork = work
+        DispatchQueue.main.async(execute: work)
+    }
+
+    func endPreview(generation: UInt, dismissed: Bool = false) {
+        guard state.canvasPreview else { return }
+        let finish = DispatchWorkItem { [weak self] in
+            guard let self, self.hoverGeneration == generation, !self.wantsExpanded, !self.state.canvasExpanded else { return }
+            self.previewWork = nil
+            self.withoutAnimation {
+                self.state.previewing = false
+                self.state.canvasPreview = false
+                self.state.compactContent = self.pendingCompactContent
+            }
+            if dismissed && self.pointerIsOverCompactPanel { self.suppressHoverUntilExit = true }
+            self.position()
+        }
+        previewWork = finish
+        if state.reduceMotion {
+            finish.perform()
+        } else {
+            withAnimation(.easeOut(duration: PanelState.previewDuration)) { state.previewing = false }
+            DispatchQueue.main.asyncAfter(deadline: .now() + PanelState.previewDuration, execute: finish)
+        }
+    }
+
+    func hover(_ inside: Bool) {
+        if suppressHoverUntilExit {
+            // AppKit can emit a synthetic exit while rebuilding the tracking
+            // region. Only an actual pointer exit enables hover opening again.
+            if !inside && !pointerIsOverCompactPanel {
+                suppressHoverUntilExit = false
+                pointerInside = false
+            }
+            return
+        }
+        pointerInside = inside
+        cancelHoverIntent()
+        let generation = hoverGeneration
+        if inside {
+            guard !wantsExpanded else { return }
+            if state.canvasExpanded { expand(focus: false); return }
+            beginPreview(generation: generation)
+        } else if !wantsExpanded && !state.canvasExpanded {
+            endPreview(generation: generation)
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.hoverGeneration == generation, self.pointerInside == inside else { return }
+            self.hoverWork = nil
             if inside {
                 self.expand(focus: false)
             } else if !self.state.pinned && !self.state.hasPresentedPopover && !self.panel.isKeyWindow {
@@ -324,7 +455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         hoverWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + (inside ? 0.18 : 0.45), execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + (inside ? PanelState.hoverDelay : 0.45), execute: work)
     }
 
     func configureMenu() {
@@ -399,6 +530,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         store.saveNow()
         hoverWork?.cancel()
+        previewWork?.cancel()
         transitionWork?.cancel()
         if let hotKey { UnregisterEventHotKey(hotKey) }
         if let hotKeyHandler { RemoveEventHandler(hotKeyHandler) }
